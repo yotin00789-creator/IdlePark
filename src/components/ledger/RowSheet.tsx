@@ -7,7 +7,8 @@ import { dataStore, useData } from "@/lib/dataStore";
 import { parseBaht, THAI_MONTHS, THAI_MONTHS_SHORT, formatBaht } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { useState } from "react";
-import { isStorageSlot } from "../../../shared/lot";
+import { cn } from "@/utils";
+import { isStorageSlot, vehicleLabel } from "../../../shared/lot";
 import VehicleLotFields, { DueDayField, RentKindPicker, type LotFieldsValue } from "./VehicleLotFields";
 import { currentFee, feeSteps } from "../../../shared/calc";
 import type { LedgerRow, RowKind } from "../../../shared/types";
@@ -57,7 +58,20 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [adoptId, setAdoptId] = useState<number | null>(null); // adding a vehicle for a customer who already has one without a slot: use that one
   if (!data) return null;
+
+  // the customer's vehicles that are not on the map yet: pick one of them instead of creating a duplicate
+  const sameCustomer = data.customers.find((c) => c.name === name.trim());
+  const waiting = row || !sameCustomer ? [] : (data.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.customerId === sameCustomer.id && r.isActive && r.kind !== "excluded" && !r.slotId);
+  const adopt = (r: LedgerRow | null) => {
+    setAdoptId(r?.id ?? null);
+    if (!r) return;
+    setPlate(r.plate);
+    setFee(formatBaht(currentFee(r, data.today)).replace(/,/g, ""));
+    setStartMonth(String(r.startMonth));
+    setLot((v) => ({ ...v, vehicleType: r.vehicleType ?? "", carColor: r.carColor ?? "", plateProvince: r.plateProvince, dueDay: r.dueDay ? String(r.dueDay) : "", zoneId: String(r.zoneId ?? v.zoneId) }));
+  };
 
   const save = async () => {
     const feeParsed = parseBaht(fee);
@@ -86,10 +100,11 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
       needsReview: review,
     };
     try {
-      const res = row ? await api.patch<{ row: LedgerRow }>(`/ledger/rows/${row.id}`, body) : await api.post<{ row: LedgerRow }>("/ledger/rows", { ...body, year });
+      const target = row?.id ?? adoptId; // an existing vehicle (edit, or chosen from the customer's vehicles) is updated; otherwise a new one is added
+      const res = target ? await api.patch<{ row: LedgerRow }>(`/ledger/rows/${target}`, { ...body, ...(adoptId && !row ? { swap: true } : {}) }) : await api.post<{ row: LedgerRow }>("/ledger/rows", { ...body, year });
       dataStore.mergeRow(res.row); // the 3D map and every page change now; the reload below confirms it
       void dataStore.load(true);
-      toast.success(row ? "บันทึกแล้ว" : "เพิ่มผู้เช่าแล้ว");
+      toast.success(row ? "บันทึกแล้ว" : adoptId ? "กำหนดรถลงช่องแล้ว" : "เพิ่มผู้เช่าแล้ว");
       onClose();
     } catch (e) {
       setError(errorMessage(e));
@@ -160,7 +175,24 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
             ลบแถวนี้ออกจากสมุดพร้อมยอดชำระของปี {row?.year} ระบบเก็บสำเนาไว้ในประวัติการใช้งาน ผู้ดูแลกู้คืนได้ ถ้าแค่หยุดเก็บ ให้ปิด “ใช้งานอยู่” แทน (ยอดรวมในอดีตจะไม่เปลี่ยน)
           </p>
         )}
-        <ComboField label="ชื่อผู้เช่า" value={name} onChange={setName} options={nameOptions} placeholder="เลือกลูกค้าเดิมหรือพิมพ์ชื่อใหม่" newHint={(v) => `ไม่มีลูกค้าชื่อ “${v}” ระบบจะเพิ่มเป็นลูกค้าใหม่`} />
+        <ComboField label="ชื่อผู้เช่า" value={name} onChange={(v) => { setName(v); setAdoptId(null); }} options={nameOptions} placeholder="เลือกลูกค้าเดิมหรือพิมพ์ชื่อใหม่" newHint={(v) => `ไม่มีลูกค้าชื่อ “${v}” ระบบจะเพิ่มเป็นลูกค้าใหม่`} />
+        {waiting.length > 0 && (
+          <div className="rounded-lg border border-gold-300 bg-gold-50/60 p-3 dark:border-gold-500/40 dark:bg-gold-500/10">
+            <p className="mb-2 text-theme-sm font-medium text-gray-800 dark:text-white/90">{sameCustomer?.name} มีรถที่ยังไม่ได้ลงช่อง เลือกคันที่จะจอดช่องนี้</p>
+            <div role="radiogroup" aria-label="เลือกรถของลูกค้า" className="space-y-1.5">
+              {waiting.map((r) => (
+                <button key={r.id} type="button" role="radio" aria-checked={adoptId === r.id} onClick={() => adopt(r)} className={cn("flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2 text-start dark:bg-gray-900", adoptId === r.id ? "border-brand-500 ring-2 ring-gold-300/60" : "border-gray-200 dark:border-gray-700")}>
+                  <span className="font-medium text-gray-800 dark:text-white/90">{r.plate || "ไม่มีทะเบียน"}</span>
+                  <span className="text-theme-xs text-gray-500 dark:text-gray-400">{r.vehicleType ? vehicleLabel(r.vehicleType) : "ไม่ระบุประเภท"} · ยังไม่ระบุช่อง</span>
+                </button>
+              ))}
+              <button type="button" role="radio" aria-checked={adoptId == null} onClick={() => { setAdoptId(null); setPlate(""); }} className={cn("flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2 text-start dark:bg-gray-900", adoptId == null ? "border-brand-500 ring-2 ring-gold-300/60" : "border-gray-200 dark:border-gray-700")}>
+                <span className="font-medium text-gray-800 dark:text-white/90">+ รถคันใหม่</span>
+                <span className="text-theme-xs text-gray-500 dark:text-gray-400">เพิ่มเป็นรถอีกคันของลูกค้า</span>
+              </button>
+            </div>
+          </div>
+        )}
         <RentKindPicker value={lot} onChange={(patch) => setLot((v) => ({ ...v, ...patch }))} year={year} exceptRowId={row?.id} />
         <div className="grid grid-cols-2 gap-4">
           <TextField label={storage ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder={storage ? "คลังเก็บของ" : "เช่น 1กข 1234"} />

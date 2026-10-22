@@ -12,7 +12,7 @@ describe("independent recount of the figures", () => {
   const M = today.month;
   const upto = Math.min(M, 6); // payments only in months that already happened
   let data: any;
-  let ids: Record<string, number> = {};
+  const ids: Record<string, number> = {};
   let bankA = 0;
   let bankB = 0;
 

@@ -7,7 +7,7 @@ import type { AppData, Customer } from "@/lib/dataStore";
 import { formatBaht, monthName, monthShort } from "@/lib/format";
 import { emptyLabel, toneLabel, type LotCar } from "@/lib/lot";
 import { cn } from "@/utils";
-import { VEHICLE_SIZE, slotLabel, vehicleLabel } from "../../../shared/lot";
+import { VEHICLE_SIZE, isMotorcycle, isStorageSlot, slotLabel, vehicleLabel } from "../../../shared/lot";
 import { useState } from "react";
 import { currentFee, isPrepaid, isYearly } from "../../../shared/calc";
 import type { LedgerRow } from "../../../shared/types";
@@ -30,7 +30,7 @@ interface CarCardProps {
   onEditCustomer: (customer: Customer) => void;
   onAdd: (slotId: string, zoneId?: number) => void;
   onSelectKey: (key: string) => void;
-  onAssign: (rowId: number, slotId: string) => void;
+  onAssign: (rowId: number, slotId: string, swap?: boolean) => void;
 }
 
 const VIEWS: { id: ViewMode; label: string }[] = [
@@ -117,7 +117,7 @@ export default function CarCard(p: CarCardProps) {
           </dl>
           {car.row.note && <p className="rounded-lg bg-gray-50 px-3 py-2 text-theme-sm text-gray-600 dark:bg-white/5 dark:text-gray-300">{car.row.note}</p>}
 
-          <OtherVehicles car={car} data={data} onSelectKey={p.onSelectKey} />
+          <OtherVehicles car={car} slot={slot} data={data} editable={editable} onSelectKey={p.onSelectKey} onAssign={p.onAssign} />
           <SlotHistory data={data} slotId={slot.id} />
           {!storage && <ViewButtons view={p.view} onView={p.onView} />}
           <Stepper onStep={p.onStep} />
@@ -142,26 +142,37 @@ export default function CarCard(p: CarCardProps) {
   );
 }
 
-function OtherVehicles({ car, data, onSelectKey }: { car: LotCar; data: AppData; onSelectKey: (key: string) => void }) {
+function OtherVehicles({ car, slot, data, editable, onSelectKey, onAssign }: { car: LotCar; slot: SlotDef; data: AppData; editable: boolean; onSelectKey: (key: string) => void; onAssign: (rowId: number, slotId: string, swap?: boolean) => void }) {
   const cid = car.row.customerId;
   const others = cid == null ? [] : (data.years.find((y) => y.year === data.today.year)?.rows ?? []).filter((r) => r.customerId === cid && r.id !== car.row.id && r.isActive && r.kind !== "excluded");
   if (!others.length) return null;
+  const canSwap = editable && slot.kind !== "storage" && !isMotorcycle(car.row.vehicleType);
+  const missingPlate = !car.row.plate && others.some((r) => r.plate);
   return (
     <div>
-      <h3 className="mb-1.5 text-theme-xs font-medium text-gray-500 dark:text-gray-400">รถอื่นของ {car.row.ownerName} ({others.length})</h3>
+      <h3 className="mb-1.5 text-theme-xs font-medium text-gray-500 dark:text-gray-400">รถของ {car.row.ownerName} ({others.length + 1} คัน)</h3>
+      {missingPlate && <p className="mb-1.5 rounded-lg bg-warning-50 px-3 py-2 text-theme-xs text-warning-800 dark:bg-warning-500/10 dark:text-warning-400">คันที่จอดช่องนี้ยังไม่มีทะเบียน ถ้าเป็นรถคันอื่นของลูกค้า กด “จอดช่องนี้” ที่คันนั้น หรือกด “แก้ไขรถ” เพื่อใส่ทะเบียน</p>}
       <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-        {others.map((r) => (
-          <li key={r.id}>
-            <button
-              disabled={!r.slotId}
-              onClick={() => r.slotId && onSelectKey(r.bay != null ? `${r.slotId}#${r.bay}` : r.slotId)}
-              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-start text-theme-sm hover:bg-gray-50 disabled:hover:bg-transparent dark:hover:bg-white/5"
-            >
-              <span className="font-medium">{r.plate || "ไม่มีทะเบียน"}</span>
-              <span className="text-theme-xs text-gray-500 dark:text-gray-400">{r.slotId ? slotLabel(r.slotId) : "ยังไม่ระบุช่อง"}{r.vehicleType ? ` · ${vehicleLabel(r.vehicleType)}` : ""}</span>
-            </button>
-          </li>
-        ))}
+        {others.map((r) => {
+          const swappable = canSwap && !isMotorcycle(r.vehicleType) && !isStorageSlot(r.slotId);
+          return (
+            <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+              <button
+                disabled={!r.slotId}
+                onClick={() => r.slotId && onSelectKey(r.bay != null ? `${r.slotId}#${r.bay}` : r.slotId)}
+                className="min-w-0 flex-1 text-start text-theme-sm disabled:cursor-default"
+              >
+                <span className="block font-medium">{r.plate || "ไม่มีทะเบียน"}</span>
+                <span className="block truncate text-theme-xs text-gray-500 dark:text-gray-400">{r.slotId ? slotLabel(r.slotId) : "ยังไม่ระบุช่อง"}{r.vehicleType ? ` · ${vehicleLabel(r.vehicleType)}` : ""}</span>
+              </button>
+              {swappable && (
+                <button onClick={() => onAssign(r.id, slot.id, true)} className="shrink-0 rounded-lg border border-gray-300 px-2.5 py-1 text-theme-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/5">
+                  {r.slotId ? "สลับช่อง" : "จอดช่องนี้"}
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

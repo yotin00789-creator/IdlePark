@@ -219,12 +219,12 @@ export default function Lot3D() {
     scene.current?.setOverview(kind);
   };
 
-  const assign = async (rowId: number, slotId: string) => {
+  const assign = async (rowId: number, slotId: string, swap = false) => {
     try {
-      const res = await api.patch<{ row: LedgerRow }>(`/ledger/rows/${rowId}`, { slotId });
+      const res = await api.patch<{ row: LedgerRow }>(`/ledger/rows/${rowId}`, { slotId, ...(swap ? { swap: true } : {}) });
       dataStore.mergeRow(res.row);
       void dataStore.load(true);
-      toast.success("กำหนดช่องแล้ว");
+      toast.success(swap ? "สลับรถแล้ว" : "กำหนดช่องแล้ว");
     } catch (e) {
       toast.error(errorMessage(e));
     }

@@ -65,4 +65,28 @@ describe("fixing a vehicle that was added wrongly", () => {
     expect((await editor.post(`/audit/${old.json.auditId}/restore`, {})).status).toBe(403);
     expect((await admin.post(`/audit/${old.json.auditId}/restore`, {})).status).toBe(200);
   });
+
+  it("a customer with several vehicles chooses which one parks where: place one, or swap two", async () => {
+    const a = (await admin.post("/ledger/rows", { year, ownerName: "สองคัน", plate: "ก 1", slotId: "E01", vehicleType: "sedan" })).json.row;
+    const b = (await admin.post("/ledger/rows", { year, ownerName: "สองคัน", customerId: a.customerId, plate: "ข 2", vehicleType: "suv" })).json.row;
+    expect(b.slotId).toBeNull();
+    // plain move into a taken slot is refused ...
+    expect((await admin.patch(`/ledger/rows/${b.id}`, { slotId: "E01" })).status).toBe(409);
+    // ... but "swap" puts the other vehicle in, and the one that was there steps out (no old slot to go to: it is left unplaced)
+    const sw = await admin.patch(`/ledger/rows/${b.id}`, { slotId: "E01", swap: true });
+    expect(sw.status).toBe(200);
+    expect(sw.json.row.slotId).toBe("E01");
+    expect((await row(a.id)).slotId).toBeNull();
+    // now both are placed: swapping again exchanges their slots
+    await admin.patch(`/ledger/rows/${a.id}`, { slotId: "E02" });
+    const again = await admin.patch(`/ledger/rows/${a.id}`, { slotId: "E01", swap: true });
+    expect(again.status).toBe(200);
+    expect([(await row(a.id)).slotId, (await row(b.id)).slotId]).toEqual(["E01", "E02"]);
+    const log = (await admin.get("/audit?action=row.update")).json.entries.map((e: any) => e.summary).join("\n");
+    expect(log).toContain("ย้ายไปช่อง E02");
+    // a swap never reaches into another customer's vehicle
+    const other = (await admin.post("/ledger/rows", { year, ownerName: "คนอื่น", plate: "ค 3", slotId: "E03", vehicleType: "sedan" })).json.row;
+    expect((await admin.patch(`/ledger/rows/${a.id}`, { slotId: "E03", swap: true })).status).toBe(409);
+    expect((await row(other.id)).slotId).toBe("E03");
+  });
 });

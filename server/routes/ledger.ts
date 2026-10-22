@@ -270,6 +270,18 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
       const [who] = await q.query("select name from customers where id = $1", [customerId]);
       n.owner_name = who.name;
     }
+    // "swap": the slot is taken by another vehicle of the same customer -> that one steps out (and takes this vehicle's old slot)
+    let swapped: Record<string, any> | null = null;
+    if (b.swap === true && n.slot_id && n.slot_id !== cur.slot_id && cur.customer_id != null) {
+      const [occ] = await q.query(
+        "select * from ledger_rows where year = $1 and slot_id = $2 and id <> $3 and is_active and kind <> 'excluded' and customer_id = $4",
+        [cur.year, n.slot_id, id, cur.customer_id],
+      );
+      if (occ) {
+        await q.query("update ledger_rows set slot_id = null, bay = null where id = $1", [occ.id]);
+        swapped = occ;
+      }
+    }
     const place = await resolvePlacement(q, {
       year: cur.year, rowId: id, vehicleType: n.vehicle_type, zoneId: n.zone_id, slotId: n.slot_id,
       bay: b.bay !== undefined ? (b.bay === null ? null : Number(b.bay)) : n.slot_id === cur.slot_id && n.vehicle_type === cur.vehicle_type && n.zone_id === cur.zone_id ? cur.bay : null,
@@ -284,6 +296,19 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
          slot_id=$15, vehicle_type=$16, car_color=$17, plate_province=$18, due_day=$19, bay=$20, fee_changes=$21::jsonb, customer_id=$22 where id=$1`,
       [id, n.owner_name, n.plate, n.zone_id, n.kind, n.monthly_fee, n.is_active, n.needs_review, n.note, n.start_month, n.end_month, n.paid_through_year, n.paid_through_month, n.sort_order, n.slot_id, n.vehicle_type, n.car_color, n.plate_province, n.due_day, n.bay, JSON.stringify(n.fee_changes), customerId],
     );
+    let swapNote = "";
+    if (swapped) {
+      let to: { slot_id: string | null; zone_id: number | null; bay: number | null } | null = null;
+      if (cur.slot_id) {
+        try {
+          to = await resolvePlacement(q, { year: cur.year, rowId: swapped.id, vehicleType: swapped.vehicle_type, zoneId: null, slotId: cur.slot_id, bay: null, startMonth: swapped.start_month, endMonth: swapped.end_month, counts: true });
+        } catch {
+          to = null; // the old slot does not suit the other vehicle (e.g. a motorcycle zone): it simply stays without a slot
+        }
+      }
+      await q.query("update ledger_rows set slot_id = $2, zone_id = coalesce($3, zone_id), bay = $4 where id = $1", [swapped.id, to?.slot_id ?? null, to?.zone_id ?? null, to?.bay ?? null]);
+      swapNote = ` · ${swapped.plate || "รถอีกคัน"} ${to?.slot_id ? `ย้ายไปช่อง ${to.slot_id}` : "ออกจากช่องนี้ (ยังไม่ระบุช่อง)"}`;
+    }
     // the customer made by a typo is removed when nothing else uses it and it holds no contact details
     let cleaned = "";
     if (cur.customer_id != null && customerId !== cur.customer_id) {
@@ -304,7 +329,7 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
       );
       later = r.length;
     }
-    await audit(c, { action: "row.update", entity: "ledger_row", entityId: id, summary: `แก้ไขผู้เช่า ${n.owner_name}${n.plate ? ` (${n.plate})` : ""} ปี ${cur.year}${feeNote}${later ? ` · ปีถัดไป ${later} แถวใช้ราคาใหม่ต่อ` : ""}${cleaned}`, before: pick(cur), after: pick(n) }, q);
+    await audit(c, { action: "row.update", entity: "ledger_row", entityId: id, summary: `แก้ไขผู้เช่า ${n.owner_name}${n.plate ? ` (${n.plate})` : ""} ปี ${cur.year}${feeNote}${later ? ` · ปีถัดไป ${later} แถวใช้ราคาใหม่ต่อ` : ""}${cleaned}${swapNote}`, before: pick(cur), after: pick(n) }, q);
   });
   const [row] = await c.db.query("select * from ledger_rows where id = $1", [id]);
   return { row: rowFromDb(row) };
