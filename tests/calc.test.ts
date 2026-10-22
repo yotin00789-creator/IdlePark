@@ -63,7 +63,7 @@ describe.skipIf(!hasFile)("calc engine vs the original Excel", async () => {
 describe("unpaid detection", () => {
   const row = (over: object = {}) => ({
     id: 1, year: 2569, sortOrder: 0, customerId: null, ownerName: "ก", plate: "1กข 1", plateProvince: "", slotId: null, vehicleType: null, carColor: null, bay: null, dueDay: null, zoneId: null,
-    kind: "normal" as const, bulkCount: 1, sourceRow: null, monthlyFee: 120000, feeChanges: [], paidThroughYear: null,
+    kind: "normal" as const, bulkCount: 1, sourceRow: null, billing: "monthly" as const, monthlyFee: 120000, feeChanges: [], paidThroughYear: null,
     paidThroughMonth: null, startMonth: 1, endMonth: null, note: "", needsReview: false, isActive: true,
     payments: Array(12).fill(null) as (number | null)[], payMethods: Array(12).fill(null), payAccounts: Array(12).fill(null), ...over,
   });

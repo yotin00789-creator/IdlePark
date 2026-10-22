@@ -179,6 +179,9 @@ async function ensureCustomer(q: Queryable, name: string): Promise<number> {
 }
 
 /** Insert one ledger row after the placement rules agree; shared by the ledger form and add-customer. */
+/** monthly or yearly: what the form says, else yearly for the storage shed and monthly for everything else. */
+const billingOf = (b: any, slotId: string | null | undefined) => (b?.billing === "yearly" || b?.billing === "monthly" ? (b.billing as string) : isStorageSlot(slotId) ? "yearly" : "monthly");
+
 /** The same plate twice in one year is almost always the same car added twice (which would start it with no payments). */
 async function refuseDuplicatePlate(q: Queryable, year: number, plate: string, slotId: string | null) {
   const norm = plate.replace(/\s+/g, "").toUpperCase();
@@ -200,9 +203,9 @@ async function insertRow(q: Queryable, f: { year: number; customerId: number; ow
   const [{ n }] = await q.query<{ n: number }>("select coalesce(max(sort_order), -1)::int + 1 as n from ledger_rows where year = $1", [f.year]);
   const [r] = await q.query(
     `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, start_month, note,
-       slot_id, vehicle_type, car_color, plate_province, due_day, bay)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning *`,
-    [f.year, n, f.customerId, f.ownerName, f.plate, place.zone_id, f.kind, f.bulkCount, f.fee, f.startMonth, f.note, place.slot_id, lot.vehicle_type, lot.car_color, lot.plate_province, lot.due_day, place.bay],
+       slot_id, vehicle_type, car_color, plate_province, due_day, bay, billing)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning *`,
+    [f.year, n, f.customerId, f.ownerName, f.plate, place.zone_id, f.kind, f.bulkCount, f.fee, f.startMonth, f.note, place.slot_id, lot.vehicle_type, lot.car_color, lot.plate_province, lot.due_day, place.bay, billingOf(f.body, place.slot_id)],
   );
   return r;
 }
@@ -247,6 +250,7 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
     paid_through_year: b.paidThroughYear === undefined ? cur.paid_through_year : intOrNull(b.paidThroughYear),
     paid_through_month: b.paidThroughMonth === undefined ? cur.paid_through_month : b.paidThroughMonth === null ? null : month(b.paidThroughMonth),
     sort_order: b.sortOrder === undefined ? cur.sort_order : Number(b.sortOrder) || 0,
+    billing: b.billing === "yearly" || b.billing === "monthly" ? b.billing : cur.billing,
   };
   if (!n.owner_name) throw new HttpError(400, "กรุณากรอกชื่อผู้เช่า");
   // a new price starts from a month: earlier months keep the price they had
@@ -305,8 +309,8 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
     await q.query(
       `update ledger_rows set owner_name=$2, plate=$3, zone_id=$4, kind=$5, monthly_fee=$6, is_active=$7, needs_review=$8,
          note=$9, start_month=$10, end_month=$11, paid_through_year=$12, paid_through_month=$13, sort_order=$14,
-         slot_id=$15, vehicle_type=$16, car_color=$17, plate_province=$18, due_day=$19, bay=$20, fee_changes=$21::jsonb, customer_id=$22 where id=$1`,
-      [id, n.owner_name, n.plate, n.zone_id, n.kind, n.monthly_fee, n.is_active, n.needs_review, n.note, n.start_month, n.end_month, n.paid_through_year, n.paid_through_month, n.sort_order, n.slot_id, n.vehicle_type, n.car_color, n.plate_province, n.due_day, n.bay, JSON.stringify(n.fee_changes), customerId],
+         slot_id=$15, vehicle_type=$16, car_color=$17, plate_province=$18, due_day=$19, bay=$20, fee_changes=$21::jsonb, customer_id=$22, billing=$23 where id=$1`,
+      [id, n.owner_name, n.plate, n.zone_id, n.kind, n.monthly_fee, n.is_active, n.needs_review, n.note, n.start_month, n.end_month, n.paid_through_year, n.paid_through_month, n.sort_order, n.slot_id, n.vehicle_type, n.car_color, n.plate_province, n.due_day, n.bay, JSON.stringify(n.fee_changes), customerId, n.billing],
     );
     let swapNote = "";
     if (swapped) {
@@ -347,7 +351,7 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
   return { row: rowFromDb(row) };
 });
 
-const pick = (r: any) => ({ ownerName: r.owner_name, plate: r.plate, plateProvince: r.plate_province, slotId: r.slot_id, bay: r.bay, vehicleType: r.vehicle_type, carColor: r.car_color, dueDay: r.due_day, zoneId: r.zone_id, kind: r.kind, monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [], isActive: r.is_active, needsReview: r.needs_review, note: r.note, startMonth: r.start_month, endMonth: r.end_month, paidThrough: r.paid_through_year ? `${r.paid_through_month}/${r.paid_through_year}` : null });
+const pick = (r: any) => ({ ownerName: r.owner_name, plate: r.plate, plateProvince: r.plate_province, slotId: r.slot_id, bay: r.bay, vehicleType: r.vehicle_type, carColor: r.car_color, dueDay: r.due_day, zoneId: r.zone_id, kind: r.kind, billing: r.billing, monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [], isActive: r.is_active, needsReview: r.needs_review, note: r.note, startMonth: r.start_month, endMonth: r.end_month, paidThrough: r.paid_through_year ? `${r.paid_through_month}/${r.paid_through_year}` : null });
 route("DELETE", "/ledger/rows/:id", EDIT as any, async (c) => {
   const id = Number(c.params.id);
   const [cur] = await c.db.query("select * from ledger_rows where id = $1", [id]);
@@ -432,9 +436,9 @@ route("POST", "/ledger/years/:year/copy-previous", EDIT as any, async (c) => {
     let i = 0;
     for (const r of prev) {
       await q.query(
-        `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, note, slot_id, vehicle_type, car_color, plate_province, due_day, bay, start_month)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'',$10,$11,$12,$13,$14,$15,$16)`,
-        [y, i++, r.customer_id, r.owner_name, r.plate, r.zone_id, r.kind, r.bulk_count, feeFor({ monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [] }, 12), r.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, r.bay, r.slot_id === "K01" ? r.start_month : 1], // the shed keeps its yearly payment month
+        `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, note, slot_id, vehicle_type, car_color, plate_province, due_day, bay, start_month, billing)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'',$10,$11,$12,$13,$14,$15,$16,$17)`,
+        [y, i++, r.customer_id, r.owner_name, r.plate, r.zone_id, r.kind, r.bulk_count, feeFor({ monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [] }, 12), r.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, r.bay, r.billing === "yearly" ? r.start_month : 1, r.billing], // a yearly row keeps its payment month
       );
     }
     await audit(c, { action: "year.copy", entity: "year", entityId: y, summary: `คัดลอกผู้เช่า ${prev.length} แถวจากปี ${y - 1} ไปปี ${y}` }, q);
@@ -727,11 +731,11 @@ route("POST", "/audit/:id/restore", EDIT as any, async (c) => {
       await q.query(
         `insert into ledger_rows (id, year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, source_row, monthly_fee,
            paid_through_year, paid_through_month, start_month, end_month, note, needs_review, is_active, created_at,
-           slot_id, vehicle_type, car_color, plate_province, due_day, bay, fee_changes)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb)`,
+           slot_id, vehicle_type, car_color, plate_province, due_day, bay, fee_changes, billing)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb,$27)`,
         [r.id, r.year, r.sort_order, custOk ? r.customer_id : null, r.owner_name, r.plate, place.zone_id, r.kind, r.bulk_count, r.source_row, r.monthly_fee,
           r.paid_through_year, r.paid_through_month, r.start_month, r.end_month, r.note, r.needs_review, r.is_active, r.created_at,
-          place.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, place.bay, JSON.stringify(r.fee_changes ?? [])],
+          place.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, place.bay, JSON.stringify(r.fee_changes ?? []), r.billing ?? "monthly"],
       );
       for (const p of snap.payments ?? []) {
         await q.query("insert into payments (row_id, month, amount, method, account_id, updated_at, updated_by) values ($1,$2,$3,$4, (select id from bank_accounts where id = $5), $6, (select id from users where id = $7))", [r.id, p.month, p.amount, p.method ?? "cash", p.account_id ?? null, p.updated_at, p.updated_by]);

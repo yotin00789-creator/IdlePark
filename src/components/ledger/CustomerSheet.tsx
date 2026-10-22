@@ -1,3 +1,4 @@
+import { cn } from "@/utils";
 import { currentFee } from "../../../shared/calc";
 import Button from "@/components/app/Button";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
@@ -16,6 +17,7 @@ import VehicleLotFields, { DueDayField, RentKindPicker, emptyLotFields, type Lot
 
 interface VehicleDraft extends LotFieldsValue {
   plate: string;
+  billing: "monthly" | "yearly";
   fee: string;
   startMonth: string;
 }
@@ -28,7 +30,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
   const [email, setEmail] = useState(c?.email ?? "");
   const [note, setNote] = useState(c?.note ?? "");
   const [active, setActive] = useState(c?.isActive ?? true);
-  const [vehicles, setVehicles] = useState<VehicleDraft[]>([{ plate: "", fee: String((data?.settings.monthlyFeeDefault ?? 120000) / 100), startMonth: String(data?.today.month ?? 1), ...emptyLotFields() }]);
+  const [vehicles, setVehicles] = useState<VehicleDraft[]>([{ plate: "", fee: String((data?.settings.monthlyFeeDefault ?? 120000) / 100), startMonth: String(data?.today.month ?? 1), ...emptyLotFields(), billing: "monthly" }]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rowEdit, setRowEdit] = useState<{ row: LedgerRow | null } | null>(null);
@@ -44,7 +46,11 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
     setVehicles((v) => v.map((x, j) => {
       if (j !== i) return x;
       const next = { ...x, ...patch };
-      if (patch.slotId !== undefined && isStorageSlot(patch.slotId) !== isStorageSlot(x.slotId)) next.fee = isStorageSlot(patch.slotId) ? "" : String((data?.settings.monthlyFeeDefault ?? 120000) / 100);
+      if (patch.slotId !== undefined && isStorageSlot(patch.slotId) !== isStorageSlot(x.slotId)) {
+        next.billing = isStorageSlot(patch.slotId) ? "yearly" : "monthly";
+        next.fee = isStorageSlot(patch.slotId) ? "" : String((data?.settings.monthlyFeeDefault ?? 120000) / 100);
+      }
+      if (patch.billing !== undefined && patch.billing !== x.billing) next.fee = patch.billing === "yearly" ? "" : String((data?.settings.monthlyFeeDefault ?? 120000) / 100);
       return next;
     }));
 
@@ -66,6 +72,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
             zoneId: v.zoneId ? Number(v.zoneId) : null,
             dueDay: v.dueDay ? Number(v.dueDay) : null,
             monthlyFee: fees[i],
+            billing: v.billing,
             startMonth: Number(v.startMonth),
             slotId: v.slotId || null,
             vehicleType: isStorageSlot(v.slotId) ? null : v.vehicleType || null,
@@ -172,13 +179,18 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
               {vehicles.map((v, i) => (
                 <div key={i} className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <RentKindPicker value={v} onChange={(patch) => setVehicle(i, patch)} year={year} taken={new Map(vehicles.flatMap((o, j) => (j !== i && o.slotId ? [[o.slotId, name || "รายการอีกคันในฟอร์มนี้"] as [string, string]] : [])))} />
+                  <div role="radiogroup" aria-label="จ่ายค่าเช่า" className="inline-flex rounded-lg bg-gray-100 p-0.5 dark:bg-white/8">
+                    {([["monthly", "รายเดือน"], ["yearly", "รายปี (ปีละครั้ง)"]] as const).map(([b, label]) => (
+                      <button key={b} type="button" role="radio" aria-checked={v.billing === b} onClick={() => setVehicle(i, { billing: b })} className={cn("h-9 rounded-md px-3.5 text-theme-sm font-medium", v.billing === b ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-700 dark:text-white" : "text-gray-600 dark:text-gray-400")}>{label}</button>
+                    ))}
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <TextField label={isStorageSlot(v.slotId) ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={v.plate} onChange={(e) => setVehicle(i, { plate: e.target.value })} placeholder={isStorageSlot(v.slotId) ? "คลังเก็บของ" : "1กข 1234"} />
-                    <TextField label={isStorageSlot(v.slotId) ? "ค่าเช่า/ปี (บาท)" : "ค่าเช่า/เดือน (บาท)"} inputMode="decimal" value={v.fee} onChange={(e) => setVehicle(i, { fee: e.target.value })} />
+                    <TextField label={v.billing === "yearly" ? "ค่าเช่า/ปี (บาท)" : "ค่าเช่า/เดือน (บาท)"} inputMode="decimal" value={v.fee} onChange={(e) => setVehicle(i, { fee: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <DueDayField value={v.dueDay} onChange={(d) => setVehicle(i, { dueDay: d })} defaultDay={data.settings.reminders.dueDay} />
-                    <SelectField label={isStorageSlot(v.slotId) ? "จ่ายประจำปีในเดือน" : "เริ่มเช่าเดือน"} value={v.startMonth} onChange={(e) => setVehicle(i, { startMonth: e.target.value })}>
+                    <SelectField label={v.billing === "yearly" ? "จ่ายประจำปีในเดือน" : "เริ่มเช่าเดือน"} value={v.startMonth} onChange={(e) => setVehicle(i, { startMonth: e.target.value })}>
                       {THAI_MONTHS.map((m, k) => <option key={m} value={k + 1}>{m}</option>)}
                     </SelectField>
                   </div>
@@ -191,7 +203,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
                   {vehicles.length > 1 && <button onClick={() => setVehicles((l) => l.filter((_, j) => j !== i))} className="text-theme-xs text-error-600">ลบรถคันนี้</button>}
                 </div>
               ))}
-              <button onClick={() => setVehicles((l) => [...l, { plate: "", fee: l[0]?.fee ?? "1200", startMonth: l[0]?.startMonth ?? "1", ...emptyLotFields() }])} className="text-theme-sm font-medium text-link">+ เพิ่มรถอีกคัน</button>
+              <button onClick={() => setVehicles((l) => [...l, { plate: "", fee: l[0]?.fee ?? "1200", startMonth: l[0]?.startMonth ?? "1", ...emptyLotFields(), billing: "monthly" }])} className="text-theme-sm font-medium text-link">+ เพิ่มรถอีกคัน</button>
             </div>
           )}
           {error && <p role="alert" className="text-theme-sm text-error-600 dark:text-error-500">{error}</p>}

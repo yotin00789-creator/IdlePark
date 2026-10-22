@@ -17,7 +17,8 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
 import { useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
-import { feeFor, isPrepaid, type CellStatus } from "../../../shared/calc";
+import { currentFee, feeFor, isPrepaid, isYearly, yearlyStatus, type CellStatus } from "../../../shared/calc";
+import { THAI_MONTHS } from "../../../shared/thai";
 import type { LedgerRow } from "../../../shared/types";
 
 const LEGEND: CellStatus[] = ["full", "partial", "zero", "empty"];
@@ -101,7 +102,10 @@ export default function Ledger() {
     }
   };
 
-  const ordered = [...rows.filter((r) => r.kind !== "excluded"), ...rows.filter((r) => r.kind === "excluded")];
+  // same name side by side, in alphabetical order (Thai collation), then by plate; rows that are not counted stay at the end
+  const byName = (a: LedgerRow, b: LedgerRow) => a.ownerName.localeCompare(b.ownerName, "th") || a.plate.localeCompare(b.plate, "th") || a.id - b.id;
+  const ordered = [...rows.filter((r) => r.kind !== "excluded").sort(byName), ...rows.filter((r) => r.kind === "excluded").sort(byName)];
+  const shed = (yd?.rows ?? []).find((r) => r.slotId === "K01" && r.isActive && r.kind !== "excluded");
   const defaultMonth = year === today.year ? today.month : year < today.year ? 12 : 1;
 
   return (
@@ -164,6 +168,19 @@ export default function Ledger() {
         >
           ยังไม่ครบ
         </button>
+      </div>
+
+      <div className="app-card mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-theme-sm" aria-label="คลังเก็บของ">
+        <span className="font-semibold text-gray-800 dark:text-white/90">คลังเก็บของ</span>
+        {shed ? (
+          <>
+            <span className="text-gray-700 dark:text-gray-300">เช่าโดย <b className="font-semibold">{shed.ownerName}</b></span>
+            <span className="text-gray-600 dark:text-gray-400">{isYearly(shed) ? <>ปีละครั้ง เดือน{THAI_MONTHS[shed.startMonth - 1]} · <Baht value={feeFor(shed, shed.startMonth)} dash={false} /> บาท</> : <>รายเดือน · <Baht value={currentFee(shed, today)} dash={false} /> บาท/เดือน</>}</span>
+            <span className={cn("rounded-full px-2 py-px text-theme-xs font-medium", yearlyStatus(shed, today) === "full" ? "bg-success-50 text-success-700 dark:bg-success-500/15 dark:text-success-500" : yearlyStatus(shed, today) === "future" ? "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300" : "bg-error-50 text-error-700 dark:bg-error-500/15 dark:text-error-400")}>{yearlyStatus(shed, today) === "full" ? "ชำระแล้ว" : yearlyStatus(shed, today) === "future" ? "ยังไม่ถึงกำหนด" : "ยังไม่ชำระ"}</span>
+          </>
+        ) : (
+          <span className="text-gray-500 dark:text-gray-400">ว่าง · ยังไม่มีผู้เช่าในปี {year} (เพิ่มผู้เช่าแล้วเลือก “คลังเก็บของ”)</span>
+        )}
       </div>
 
       <dl className="app-card mb-3 grid grid-cols-3 divide-x divide-gray-200 rtl:divide-x-reverse dark:divide-gray-800">

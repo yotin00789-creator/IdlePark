@@ -1,4 +1,4 @@
-import { monthStatus, type CellStatus } from "../../../shared/calc";
+import { isYearly, monthStatus, yearlyStatus, type CellStatus } from "../../../shared/calc";
 import type { LedgerRow, Money } from "../../../shared/types";
 import { monthShort } from "@/lib/format";
 import { STATUS_LABEL } from "@/components/ledger/status";
@@ -13,7 +13,7 @@ const TONE: Record<CellStatus, string> = {
 };
 interface MonthStripProps {
   payments: Money[];
-  row: Pick<LedgerRow, "monthlyFee" | "feeChanges" | "slotId" | "startMonth">;
+  row: Pick<LedgerRow, "monthlyFee" | "feeChanges" | "slotId" | "startMonth" | "billing">;
   year: number;
   today: { year: number; month: number };
   className?: string;
@@ -21,6 +21,16 @@ interface MonthStripProps {
 
 // 12 small cells, one per month: green paid, amber partial, red zero, gray empty.
 export default function MonthStrip({ payments, row, year, today, className }: MonthStripProps) {
+  if (isYearly(row)) {
+    // a yearly renter is one long bar: green when the year's rent is paid, red when it is owed
+    const st = yearlyStatus({ ...row, payments, year }, today);
+    return (
+      <div className={cn("flex items-center gap-2", className)} role="img" aria-label={`ชำระปีละครั้ง: ${STATUS_LABEL[st]}`}>
+        <span className={cn("h-1.5 flex-1 rounded-full", st === "empty" ? "bg-error-500" : TONE[st])} />
+        <span className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400">รายปี</span>
+      </div>
+    );
+  }
   return (
     <div className={cn("flex gap-0.5", className)} role="img" aria-label="สถานะการชำระ 12 เดือน">
       {payments.map((p, i) => {

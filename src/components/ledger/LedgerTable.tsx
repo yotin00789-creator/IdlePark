@@ -3,12 +3,12 @@ import EditableCell from "@/components/app/EditableCell";
 import FormulaPopover from "@/components/app/FormulaPopover";
 import PlateChip from "@/components/app/PlateChip";
 import { explainMonth, explainTotal } from "@/lib/formulas";
-import { monthShort, parseBaht } from "@/lib/format";
+import { formatBaht, monthName, monthShort, parseBaht } from "@/lib/format";
 import { confirmItemChanges, savePayments, saveItems, useData, type ItemChange, type PaymentChange } from "@/lib/dataStore";
 import { modeFields, payMode } from "@/lib/payMode";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
-import { monthStatus, rowYearTotal, isPrepaid } from "../../../shared/calc";
+import { isYearly, monthStatus, rowYearTotal, isPrepaid, yearlyStatus, feeFor } from "../../../shared/calc";
 import type { ItemKind, LedgerRow, YearCalc, YearData } from "../../../shared/types";
 import { CELL_TONE } from "./status";
 
@@ -40,6 +40,36 @@ function MethodChip({ method, bank, editable, onFlip }: { method: "cash" | "tran
     >
       {transfer ? "โอน" : "สด"}
     </button>
+  );
+}
+
+const BAR_TONE: Record<string, string> = {
+  full: "bg-success-50 text-success-700 ring-success-200 dark:bg-success-500/10 dark:text-success-400 dark:ring-success-500/30",
+  partial: "bg-warning-50 text-warning-800 ring-warning-200 dark:bg-warning-500/10 dark:text-warning-400 dark:ring-warning-500/30",
+  zero: "bg-error-50 text-error-700 ring-error-200 dark:bg-error-500/10 dark:text-error-400 dark:ring-error-500/30",
+  empty: "bg-error-50 text-error-700 ring-error-200 dark:bg-error-500/10 dark:text-error-400 dark:ring-error-500/30",
+  future: "bg-gray-50 text-gray-600 ring-gray-200 dark:bg-white/5 dark:text-gray-300 dark:ring-gray-700",
+};
+
+/** A yearly renter is one long bar across the twelve months: the yearly fee, the month it falls due, and the amount paid. */
+function YearlyBar({ row, year, today, r, editable, dim, onCommit, onPaste }: { row: LedgerRow; year: number; today: { year: number; month: number }; r: number; editable: boolean; dim: boolean; onCommit: (v: number | null) => void; onPaste: (r: number, c: number, m: string[][]) => void }) {
+  const status = yearlyStatus(row, today);
+  const fee = feeFor(row, row.startMonth);
+  const paid = rowYearTotal(row);
+  const label = status === "full" ? "ชำระแล้ว" : status === "partial" ? `ชำระบางส่วน · ขาด ${formatBaht(Math.max(0, fee - paid))}` : status === "future" ? "ยังไม่ถึงกำหนด" : "ยังไม่ชำระ";
+  return (
+    <div className={cn("flex min-h-10 items-center gap-3 rounded-lg px-3 ring-1 ring-inset", dim ? "bg-gray-50 text-gray-500 ring-gray-200 dark:bg-white/3 dark:ring-gray-700" : BAR_TONE[status])}>
+      <span className="shrink-0 whitespace-nowrap text-theme-sm">
+        <b className="font-semibold">รายปี</b> · จ่ายปีละครั้ง เดือน{monthName(row.startMonth)} {year} · ค่าเช่า <b className="num font-semibold">{formatBaht(fee)}</b> บาท
+        <span className="ms-2 text-theme-xs">{label}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5 text-theme-xs">
+        รับแล้ว
+        <span className="inline-block h-8 w-28 overflow-hidden rounded-md bg-white/80 dark:bg-gray-900/70">
+          <EditableCell grid="ledger" r={r} c={row.startMonth - 1} value={row.payments[row.startMonth - 1]} editable={editable} label={`${row.ownerName} ${row.plate} ค่าเช่ารายปี`} tone="text-gray-800 dark:text-white/90" placeholder="กรอกยอด" onCommit={onCommit} onPasteMatrix={onPaste} />
+        </span>
+      </span>
+    </div>
   );
 }
 
@@ -125,7 +155,11 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
         <td className={cn(cellBase, sticky2, "bg-white px-2 group-hover:bg-gray-50 dark:bg-gray-900 dark:group-hover:bg-gray-800")}>
           <PlateChip plate={row.plate} />
         </td>
-        {MONTHS.map((m) => {
+        {isYearly(row) ? (
+          <td colSpan={12} className={cn(cellBase, "px-2 py-1.5")}>
+            <YearlyBar row={row} year={year.year} today={today} r={r} editable={editable} dim={dim} onCommit={(v) => void savePayments([{ rowId: row.id, month: row.startMonth, amount: v, ...fieldsFor(row, row.startMonth, v) }])} onPaste={pasteRows} />
+          </td>
+        ) : MONTHS.map((m) => {
           const amount = row.payments[m - 1];
           const prepaid = isPrepaid(row, year.year, m) && amount == null;
           const status = monthStatus(row, m, amount, isFuture(m));

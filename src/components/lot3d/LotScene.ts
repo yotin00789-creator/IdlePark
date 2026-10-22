@@ -415,6 +415,7 @@ export class LotScene {
   }
 
   private park(input: CarInput) {
+    this.unpark(input.key); // a different model for the same place replaces the old one: never two cars on top of each other
     const s = this.slotById[input.slotId];
     const t = this.typeById[input.type];
     const root = this.templates[input.type].clone(true);

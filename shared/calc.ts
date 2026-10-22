@@ -148,9 +148,9 @@ export interface Unpaid {
   due: number; // satang still outstanding
 }
 
-/** The storage shed (K01) is paid once a year, in the month the tenancy starts; everything else is paid monthly. */
-export const isYearly = (row: { slotId?: string | null }) => isStorageSlot(row.slotId);
-type PricedRow = Pick<LedgerRow, "monthlyFee" | "feeChanges"> & Partial<Pick<LedgerRow, "slotId" | "startMonth">>;
+/** A yearly row (the storage shed by default) is paid once a year, in the month the tenancy starts; the rest pay every month. */
+export const isYearly = (row: { slotId?: string | null; billing?: string }) => (row.billing ? row.billing === "yearly" : isStorageSlot(row.slotId));
+type PricedRow = Pick<LedgerRow, "monthlyFee" | "feeChanges"> & Partial<Pick<LedgerRow, "slotId" | "startMonth" | "billing">>;
 
 /** The price in force in a given month (the last change at or before it, else the starting price). */
 function priceAt(row: Pick<LedgerRow, "monthlyFee" | "feeChanges">, month: number): number {
@@ -181,6 +181,15 @@ export function rentTotals(rows: (PricedRow & Pick<LedgerRow, "year">)[], today:
     else monthly += currentFee(r, today);
   }
   return { monthly, yearly };
+}
+
+/** A yearly row's one status: what the whole year has paid against the yearly fee (any month counts). */
+export function yearlyStatus(row: PricedRow & Pick<LedgerRow, "payments" | "year">, today: { year: number; month: number }): CellStatus {
+  const paid = row.payments.reduce<number>((n, v) => n + (v ?? 0), 0);
+  const hasMoney = row.payments.some((v) => v != null);
+  const future = row.year > today.year || (row.year === today.year && today.month < (row.startMonth ?? 1));
+  if (!hasMoney) return future ? "future" : "empty";
+  return cellStatus(paid, priceAt(row, row.startMonth ?? 1), future);
 }
 
 /** Colour class of one month's cell: a yearly row is neutral in the months it owes nothing. */

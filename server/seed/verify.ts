@@ -26,6 +26,7 @@ export function toYearData(p: ParsedWorkbook["years"][number], mode: "legacy" | 
       kind: r.kind,
       bulkCount: 1,
       sourceRow: r.sourceRow,
+      billing: "monthly" as const,
       monthlyFee: DEFAULT_FEE,
       feeChanges: [],
       paidThroughYear: r.paidThroughYear,

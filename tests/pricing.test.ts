@@ -125,3 +125,28 @@ describe("one customer, vehicles with different prices and different due days", 
     void b;
   });
 });
+
+describe("choosing how a renter pays: monthly or once a year", () => {
+  it("any renter can pay yearly; the shed defaults to yearly; the choice survives edits, a new year and a restore", async () => {
+    await freshApp();
+    const admin = await setupAdmin();
+    const y = bangkokToday().year;
+    const car = (await admin.post("/ledger/rows", { year: y, ownerName: "รถรายปี", plate: "Y 1", monthlyFee: 1200000, billing: "yearly", startMonth: 3, slotId: "N01", vehicleType: "sedan" })).json.row;
+    expect(car).toMatchObject({ billing: "yearly", monthlyFee: 1200000, startMonth: 3 });
+    expect([1, 2, 3, 4].map((m) => feeFor(car, m))).toEqual([0, 0, 1200000, 0]); // owes the whole fee only in March
+    const shed = (await admin.post("/ledger/rows", { year: y, ownerName: "เช่าคลัง", plate: "คลังเก็บของ", slotId: "K01", monthlyFee: 300000 })).json.row;
+    expect(shed.billing).toBe("yearly"); // not said: the shed is yearly
+    const monthlyShed = (await admin.patch(`/ledger/rows/${shed.id}`, { billing: "monthly" })).json.row;
+    expect(monthlyShed.billing).toBe("monthly"); // but it can be set to monthly
+    const normal = (await admin.post("/ledger/rows", { year: y, ownerName: "รายเดือน", plate: "M 1" })).json.row;
+    expect(normal.billing).toBe("monthly");
+    await admin.post(`/ledger/years/${y + 1}/copy-previous`, {});
+    const next = (await admin.get("/data")).json.years.find((x: any) => x.year === y + 1).rows;
+    expect(next.find((r: any) => r.plate === "Y 1")).toMatchObject({ billing: "yearly", startMonth: 3 });
+    expect(next.find((r: any) => r.plate === "M 1").billing).toBe("monthly");
+    // delete + restore keeps it
+    const del = await admin.del(`/ledger/rows/${car.id}`);
+    await admin.post(`/audit/${del.json.auditId}/restore`, {});
+    expect((await admin.get("/data")).json.years.find((x: any) => x.year === y).rows.find((r: any) => r.id === car.id).billing).toBe("yearly");
+  });
+});

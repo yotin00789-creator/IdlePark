@@ -109,15 +109,16 @@ function MonthSheet({ row, year, today, editable, onClose, onEditRow }: MonthShe
         )
       }
     >
-      <div className="grid grid-cols-2 gap-3">
+      <div className={cn("grid gap-3", isYearly(row) ? "grid-cols-1" : "grid-cols-2")}>
         {Array.from({ length: 12 }, (_, i) => {
           const m = i + 1;
+          if (isYearly(row) && m !== row.startMonth) return null; // a yearly renter has one payment a year
           const future = year > today.year || (year === today.year && m > today.month);
           const parsed = parseBaht(draft[i] ?? "");
           const status = monthStatus(row, m, parsed === "invalid" ? null : parsed, future);
           return (
             <label key={m} className="block">
-              <span className="mb-1 block text-theme-xs text-gray-500 dark:text-gray-400">{monthName(m)}</span>
+              <span className="mb-1 block text-theme-xs text-gray-500 dark:text-gray-400">{isYearly(row) ? `ค่าเช่ารายปี · จ่ายเดือน${monthName(m)}` : monthName(m)}</span>
               <input
                 inputMode="decimal"
                 disabled={!editable}

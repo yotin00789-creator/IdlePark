@@ -289,4 +289,13 @@ alter table payments
   add column account_id integer references bank_accounts(id) on delete set null;
 `,
   },
+  {
+    id: 7,
+    name: "billing_period",
+    sql: `
+-- how a vehicle pays: every month, or once a year (the storage shed pays yearly unless set otherwise)
+alter table ledger_rows add column billing text not null default 'monthly' check (billing in ('monthly','yearly'));
+update ledger_rows set billing = 'yearly' where slot_id = 'K01';
+`,
+  },
 ];

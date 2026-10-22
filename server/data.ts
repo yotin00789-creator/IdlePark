@@ -25,6 +25,7 @@ export const rowFromDb = (r: Record<string, any>, payments: Money[] = blank(), m
   kind: r.kind,
   bulkCount: r.bulk_count,
   sourceRow: r.source_row,
+  billing: r.billing === "yearly" ? "yearly" : "monthly",
   monthlyFee: r.monthly_fee,
   feeChanges: Array.isArray(r.fee_changes) ? r.fee_changes : [],
   paidThroughYear: r.paid_through_year,

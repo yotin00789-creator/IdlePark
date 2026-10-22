@@ -44,6 +44,8 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
     dueDay: row?.dueDay ? String(row.dueDay) : "",
   });
   const storage = isStorageSlot(lot.slotId);
+  const [billing, setBilling] = useState<"monthly" | "yearly">(row?.billing ?? (isStorageSlot(presetSlot) ? "yearly" : "monthly"));
+  const yearly = billing === "yearly"; // pays once a year (the storage shed by default, but any renter can)
   const startFee = row && data ? currentFee(row, data.today) : (data?.settings.monthlyFeeDefault ?? 120000);
   const [fee, setFee] = useState(formatBaht(startFee).replace(/,/g, ""));
   const [feeFrom, setFeeFrom] = useState(String(row && data && row.year === data.today.year ? data.today.month : 1)); // the month a new price starts
@@ -80,7 +82,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
   const save = async () => {
     const feeParsed = parseBaht(fee);
     if (!name.trim()) return setError("กรุณากรอกชื่อผู้เช่า");
-    if (feeParsed === "invalid" || feeParsed == null || feeParsed <= 0) return setError(`${storage ? "ค่าเช่าต่อปี" : "ค่าเช่าต่อเดือน"}ต้องเป็นตัวเลขมากกว่า 0`);
+    if (feeParsed === "invalid" || feeParsed == null || feeParsed <= 0) return setError(`${yearly ? "ค่าเช่าต่อปี" : "ค่าเช่าต่อเดือน"}ต้องเป็นตัวเลขมากกว่า 0`);
     setBusy(true);
     setError(null);
     const body = {
@@ -93,7 +95,8 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
       zoneId: lot.zoneId ? Number(lot.zoneId) : null,
       dueDay: lot.dueDay ? Number(lot.dueDay) : null,
       monthlyFee: feeParsed,
-      ...(row && feeParsed !== startFee ? { feeFrom: storage ? 1 : Number(feeFrom) } : {}),
+      billing,
+      ...(row && feeParsed !== startFee ? { feeFrom: yearly ? 1 : Number(feeFrom) } : {}),
       kind,
       startMonth: Number(startMonth),
       endMonth: endMonth ? Number(endMonth) : null,
@@ -197,12 +200,20 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
             </div>
           </div>
         )}
-        <RentKindPicker value={lot} onChange={(patch) => setLot((v) => ({ ...v, ...patch }))} year={year} exceptRowId={row?.id} />
+        <RentKindPicker value={lot} onChange={(patch) => { setLot((v) => ({ ...v, ...patch })); if (patch.slotId !== undefined && isStorageSlot(patch.slotId) !== storage) setBilling(isStorageSlot(patch.slotId) ? "yearly" : "monthly"); }} year={year} exceptRowId={row?.id} />
         <div className="grid grid-cols-2 gap-4">
           <TextField label={storage ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder={storage ? "คลังเก็บของ" : "เช่น 1กข 1234"} />
-          <TextField label={storage ? "ค่าเช่าต่อปี (บาท)" : "ค่าเช่าต่อเดือน (บาท)"} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={storage ? "คลังเก็บของจ่ายปีละครั้ง" : row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />
+          <TextField label={yearly ? "ค่าเช่าต่อปี (บาท)" : "ค่าเช่าต่อเดือน (บาท)"} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={yearly ? "จ่ายปีละครั้ง" : row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />
         </div>
-        {row && priceChanged && !storage && (
+        <div>
+          <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">จ่ายค่าเช่า</span>
+          <div role="radiogroup" aria-label="จ่ายค่าเช่า" className="inline-flex rounded-lg bg-gray-100 p-0.5 dark:bg-white/8">
+            {([["monthly", "รายเดือน"], ["yearly", "รายปี (ปีละครั้ง)"]] as const).map(([v, label]) => (
+              <button key={v} type="button" role="radio" aria-checked={billing === v} onClick={() => setBilling(v)} className={cn("h-9 rounded-md px-3.5 text-theme-sm font-medium", billing === v ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-700 dark:text-white" : "text-gray-600 dark:text-gray-400")}>{label}</button>
+            ))}
+          </div>
+        </div>
+        {row && priceChanged && !yearly && (
           <div className="rounded-lg border border-gold-300 bg-gold-50/60 p-3 dark:border-gold-500/40 dark:bg-gold-500/10">
             <SelectField label="ใช้ราคาใหม่ตั้งแต่เดือน" value={feeFrom} onChange={(e) => setFeeFrom(e.target.value)} hint={`เดือนก่อนหน้านั้นยังคิดราคาเดิม ไม่เปลี่ยนยอดค้างหรือยอดที่เก็บไปแล้ว${row.year < data.today.year ? " (นี่คือปีที่ผ่านมาแล้ว)" : ""}`}>
               {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m} {row.year}</option>)}
@@ -220,7 +231,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
           {(Object.keys(KIND) as RowKind[]).map((k) => <option key={k} value={k}>{KIND[k]}</option>)}
         </SelectField>
         <div className="grid grid-cols-2 gap-4">
-          <SelectField label={storage ? "จ่ายประจำปีในเดือน" : "เริ่มเช่าเดือน"} value={startMonth} onChange={(e) => setStartMonth(e.target.value)} hint={storage ? "เก็บค่าเช่าคลังปีละครั้งในเดือนนี้ ถ้ายังไม่จ่ายระบบแจ้งเตือนจนกว่าจะบันทึกรับเงิน" : "เดือนก่อนหน้านี้ไม่ถูกแจ้งว่าค้าง"}>
+          <SelectField label={yearly ? "จ่ายประจำปีในเดือน" : "เริ่มเช่าเดือน"} value={startMonth} onChange={(e) => setStartMonth(e.target.value)} hint={yearly ? "เก็บค่าเช่าปีละครั้งในเดือนนี้ ถ้ายังไม่จ่ายระบบแจ้งเตือนจนกว่าจะบันทึกรับเงิน" : "เดือนก่อนหน้านี้ไม่ถูกแจ้งว่าค้าง"}>
             {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </SelectField>
           <SelectField label="สิ้นสุดเดือน" value={endMonth} onChange={(e) => setEndMonth(e.target.value)} hint="เว้นว่างถ้ายังเช่าอยู่">

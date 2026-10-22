@@ -34,7 +34,8 @@ export interface LedgerRow {
   kind: RowKind;
   bulkCount: number;
   sourceRow: number | null; // row number in the original Excel sheet
-  monthlyFee: number; // satang: the price at the start of the year
+  billing: "monthly" | "yearly"; // pays every month, or once a year in startMonth
+  monthlyFee: number; // satang: the price at the start of the year (the whole year's fee for a yearly row)
   feeChanges: FeeChange[]; // price changes within the year, each one from `month` on
   paidThroughYear: number | null;
   paidThroughMonth: number | null;
