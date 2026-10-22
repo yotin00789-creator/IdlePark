@@ -28,25 +28,27 @@ export default function Zones() {
   const [form, setForm] = useState<{ zone: Zone | null } | null>(null);
   const editable = canEdit(user);
   const year = data?.today.year ?? 0;
-  const rows = useMemo(() => (data?.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.isActive && r.kind !== "excluded"), [data, year]);
+  const rows = useMemo(() => (data?.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.isActive && r.kind !== "bulk"), [data, year]); // a renter ticked "not counted" still holds the slot
   if (!data) return null;
 
+  // a vehicle belongs to the zone its slot is in (the slot decides); one without a slot belongs to the zone it was given
+  const zoneOfRow = (r: LedgerRow) => (r.slotId ? data.zones.find((z) => z.slotIds.includes(r.slotId as string))?.id ?? null : r.zoneId);
   const stat = (z: Zone) => {
-    const mine = rows.filter((r) => r.zoneId === z.id);
+    const mine = rows.filter((r) => zoneOfRow(r) === z.id);
     const motos = mine.filter((r) => isMotorcycle(r.vehicleType)).length;
     const slotCount = z.slotIds.length;
     const usedSlots = new Set(mine.filter((r) => r.slotId && !isMotorcycle(r.vehicleType)).map((r) => r.slotId)).size;
     return {
       count: mine.length,
       unplaced: motos ? 0 : mine.filter((r) => !r.slotId).length,
-      rent: rentTotals(mine, data.today),
+      rent: rentTotals(mine.filter((r) => r.kind === "normal"), data.today), // ...but its money is not counted
       motos,
       used: z.motoCapacity ? motos : usedSlots,
       total: z.motoCapacity ? z.motoCapacity : slotCount || z.capacity || 0,
     };
   };
-  const none = rows.filter((r) => r.zoneId == null);
-  const noneRent = rentTotals(none, data.today);
+  const none = rows.filter((r) => zoneOfRow(r) == null);
+  const noneRent = rentTotals(none.filter((r) => r.kind === "normal"), data.today);
   const inZone = new Set(data.zones.flatMap((z) => z.slotIds));
   const free = SLOT_IDS.filter((id) => !inZone.has(id));
 
