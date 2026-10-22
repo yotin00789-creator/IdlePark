@@ -1,6 +1,7 @@
 import Baht from "@/components/app/Baht";
 import Button from "@/components/app/Button";
 import Card from "@/components/app/Card";
+import CountUp from "@/components/app/CountUp";
 import EmptyState from "@/components/app/EmptyState";
 import GreetingBanner from "@/components/dashboard/GreetingBanner";
 import PageHeader from "@/components/app/PageHeader";
@@ -11,7 +12,11 @@ import { useCalc } from "@/lib/dataStore";
 import { formatBaht, monthName } from "@/lib/format";
 import { canEdit, useAuth } from "@/lib/session";
 import { cn } from "@/utils";
+import { useReady } from "@/lib/useReady";
+import { settleBaht } from "@/lib/motion";
 import { Suspense, lazy, useMemo, useState } from "react";
+const money = (final: number) => settleBaht(final, (v) => formatBaht(Math.round(v)));
+const delay = (n: number) => ({ ["--d" as string]: `${n}ms` });
 import { Link } from "react-router";
 import { calcSavings, feeFor, findUnpaid, isPrepaid, type Unpaid } from "../../../shared/calc";
 import PageLoading from "@/components/app/Skeleton";
@@ -25,6 +30,7 @@ export default function Dashboard() {
   const [year, setYear] = useState<number | null>(null);
   const [pay, setPay] = useState<Unpaid | null>(null);
   const editable = canEdit(user);
+  const ready = useReady(); // bars start empty and grow to their share once the page is on screen
 
   const view = useMemo(() => {
     if (!model) return null;
@@ -90,48 +96,48 @@ export default function Dashboard() {
           onYear={setYear}
           showUnpaid={y === today.year}
           unpaidCount={thisMonthUnpaid.length}
-          unpaidTotal={formatBaht(unpaidTotal)}
+          unpaidTotal={unpaidTotal}
           monthLabel={monthName(today.month)}
         />
 
-        <Card title="ภาพรวมตัวเงิน" description={`ปี ${y}`}>
+        <Card title="ภาพรวมตัวเงิน" description={`ปี ${y}`} className="rise" style={delay(80)}>
           <p className="text-theme-sm text-gray-500 dark:text-gray-400">ยอดคงเหลือทั้งหมด (สะสม)</p>
           <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-title-sm font-semibold text-gray-900 dark:text-white">
-            <Baht value={calc.cumulative} signColor />
+            <Baht animate value={calc.cumulative} signColor />
             <span className="text-theme-sm font-normal text-gray-500 dark:text-gray-400">บาท</span>
-            {yoy != null && <span className={cn("rounded-full px-2 py-0.5 text-theme-xs font-medium", yoy >= 0 ? "bg-success-50 text-success-700 dark:bg-success-500/15 dark:text-success-500" : "bg-error-50 text-error-700 dark:bg-error-500/15 dark:text-error-500")}>{yoy >= 0 ? "+" : "−"}{Math.abs(yoy)}%</span>}
+            {yoy != null && <span className={cn("rounded-full px-2 py-0.5 text-theme-xs font-medium", yoy >= 0 ? "bg-success-50 text-success-700 dark:bg-success-500/15 dark:text-success-500" : "bg-error-50 text-error-700 dark:bg-error-500/15 dark:text-error-500")}>{yoy >= 0 ? "+" : "−"}<CountUp value={Math.abs(yoy)} format={(v) => `${Math.round(v)}%`} /></span>}
           </p>
-          <p className="mt-0.5 text-theme-xs text-gray-500 dark:text-gray-400">สิ้นปีก่อน <Baht value={calc.cumulativeStart} /> · ปีนี้ <Baht value={calc.totals.net} signColor sign /></p>
+          <p className="mt-0.5 text-theme-xs text-gray-500 dark:text-gray-400">สิ้นปีก่อน <Baht animate value={calc.cumulativeStart} /> · ปีนี้ <Baht animate value={calc.totals.net} signColor sign /></p>
 
           <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10" role="img" aria-label="สัดส่วนรายรับที่ใช้ไปกับรายจ่ายแต่ละประเภทและที่เหลือ">
-            {mix.map((x) => <span key={x.label} className={x.cls} style={{ width: `${x.pct}%` }} />)}
+            {mix.map((x, i) => <span key={x.label} className={cn(x.cls, "transition-[width] duration-1000 ease-out")} style={{ width: ready ? `${x.pct}%` : "0%", transitionDelay: `${300 + i * 120}ms` }} />)}
           </div>
           <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-theme-xs">
             {mix.map((x) => (
               <li key={x.label} className="flex items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-1.5 text-gray-600 dark:text-gray-400"><span className={cn("size-2 shrink-0 rounded-full", x.cls)} />{x.label}</span>
-                <Baht value={x.v} dash={false} className="font-medium text-gray-800 dark:text-white/90" />
+                <Baht animate value={x.v} dash={false} className="font-medium text-gray-800 dark:text-white/90" />
               </li>
             ))}
           </ul>
           <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-gray-100 pt-3 dark:border-gray-800">
-            <div><dt className="text-theme-xs text-gray-500 dark:text-gray-400">รายรับปี {y}</dt><dd className="num text-base font-semibold text-gray-900 dark:text-white"><Baht value={calc.totals.income} /></dd></div>
-            <div><dt className="text-theme-xs text-gray-500 dark:text-gray-400">รวม(หักแล้ว)</dt><dd className="text-base font-semibold text-gray-900 dark:text-white"><Baht value={calc.totals.net} signColor /></dd></div>
+            <div><dt className="text-theme-xs text-gray-500 dark:text-gray-400">รายรับปี {y}</dt><dd className="num text-base font-semibold text-gray-900 dark:text-white"><Baht animate value={calc.totals.income} /></dd></div>
+            <div><dt className="text-theme-xs text-gray-500 dark:text-gray-400">รวม(หักแล้ว)</dt><dd className="text-base font-semibold text-gray-900 dark:text-white"><Baht animate value={calc.totals.net} signColor /></dd></div>
           </dl>
         </Card>
       </div>
 
       <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <Card title="รายรับเทียบรายจ่ายรายเดือน" description={`ปี ${y} · เส้นคือรวม(หักแล้ว)`}>
+        <Card title="รายรับเทียบรายจ่ายรายเดือน" description={`ปี ${y} · เส้นคือรวม(หักแล้ว)`} className="rise" style={delay(160)}>
           <Suspense fallback={<PageLoading />}><MonthlyChart calc={calc} upTo={view.upTo || 12} /></Suspense>
         </Card>
-        <Card title={`สถานะการชำระเดือน${monthName(m)}`} description={y === today.year ? `เก็บได้ ${formatBaht(collected)} จาก ${formatBaht(expected)} บาท (${rate}%)` : `ปี ${y} เดือนธันวาคม`}>
+        <Card className="rise" style={delay(240)} title={`สถานะการชำระเดือน${monthName(m)}`} description={y === today.year ? <>เก็บได้ <CountUp value={collected} format={money(collected)} /> จาก <CountUp value={expected} format={money(expected)} /> บาท (<CountUp value={rate} format={(v) => `${Math.round(v)}%`} />)</> : `ปี ${y} เดือนธันวาคม`}>
           <Suspense fallback={<PageLoading />}><PayDonut full={paidFull} partial={partial} none={eligible - paidFull - partial} /></Suspense>
           <ul className="mt-2 space-y-2.5 text-theme-sm">
             {[["ชำระครบ", paidFull, "bg-success-500"], ["ชำระบางส่วน", partial, "bg-gold-400"], ["ยังไม่ชำระ", eligible - paidFull - partial, "bg-error-500"]].map(([label, n, cls]) => (
               <li key={label as string} className="flex items-center justify-between gap-3">
                 <span className="flex items-center gap-2 text-gray-700 dark:text-gray-300"><span className={cn("h-4 w-1 rounded-full", cls as string)} />{label}</span>
-                <span className="num font-semibold text-gray-900 dark:text-white">{n} คัน</span>
+                <span className="num font-semibold text-gray-900 dark:text-white"><CountUp value={n as number} /> คัน</span>
               </li>
             ))}
           </ul>
@@ -140,6 +146,8 @@ export default function Dashboard() {
 
       <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <Card
+          className="rise"
+          style={delay(320)}
           title={y === today.year ? "ยังไม่ได้เก็บ" : "ยังไม่ได้เก็บ (เฉพาะปีปัจจุบัน)"}
           description={y === today.year ? `เดือน${monthName(today.month)}${model.data.settings.reminders.lookbackMonths ? ` และย้อนหลัง ${model.data.settings.reminders.lookbackMonths} เดือน` : ""}` : undefined}
           bodyClassName="p-0"
@@ -155,7 +163,7 @@ export default function Dashboard() {
                     <p className="truncate text-theme-sm font-medium text-gray-800 dark:text-white/90">{u.row.ownerName}</p>
                     <p className="mt-0.5 flex items-center gap-2 text-theme-xs text-gray-500"><PlateChip plate={u.row.plate} /> {monthName(u.month)}{u.paid > 0 && ` · จ่ายแล้ว ${formatBaht(u.paid)}`}</p>
                   </div>
-                  <Baht value={u.due} className="font-semibold text-error-600" />
+                  <Baht animate value={u.due} className="font-semibold text-error-600" />
                   {editable && <Button size="sm" variant="outline" onClick={() => setPay(u)}>บันทึกว่าชำระแล้ว</Button>}
                 </li>
               ))}
@@ -163,23 +171,23 @@ export default function Dashboard() {
           )}
         </Card>
 
-        <Card title="รายจ่ายปีนี้แยกประเภท" description={`รวม ${formatBaht(outgoing.reduce((n, o) => n + o.v, 0))} บาท`}>
+        <Card className="rise" style={delay(400)} title="รายจ่ายปีนี้แยกประเภท" description={<>รวม <CountUp value={outgoing.reduce((n, o) => n + o.v, 0)} format={money(outgoing.reduce((n, o) => n + o.v, 0))} /> บาท</>}>
           <ul className="space-y-3.5">
-            {outgoing.map((o) => (
+            {outgoing.map((o, i) => (
               <li key={o.label}>
-                <div className="flex justify-between text-theme-sm"><span className="text-gray-600 dark:text-gray-400">{o.label}</span><Baht value={o.v} className="font-medium text-gray-800 dark:text-white/90" /></div>
-                <div className="mt-1.5 h-1.5 rounded-full bg-gray-100 dark:bg-white/10"><div className="h-1.5 rounded-full bg-brand-400" style={{ width: `${(o.v / outMax) * 100}%` }} /></div>
+                <div className="flex justify-between text-theme-sm"><span className="text-gray-600 dark:text-gray-400">{o.label}</span><Baht animate value={o.v} className="font-medium text-gray-800 dark:text-white/90" /></div>
+                <div className="mt-1.5 h-1.5 rounded-full bg-gray-100 dark:bg-white/10"><div className="h-1.5 rounded-full bg-brand-400 transition-[width] duration-1000 ease-out" style={{ width: ready ? `${(o.v / outMax) * 100}%` : "0%", transitionDelay: `${300 + i * 120}ms` }} /></div>
               </li>
             ))}
           </ul>
           <div className="mt-5 border-t border-gray-100 pt-4 text-theme-sm dark:border-gray-800">
-            <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">เงินเก็บพ่อ คงเหลือรวม</span><Link to="/savings" className="num font-medium text-link">{formatBaht(savingsTotal)}</Link></div>
-            {latestSavings && <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">ล่าสุดปี {latestSavings.data.year}: {formatBaht(calcSavings(latestSavings.data).yearRemain)}</p>}
+            <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">เงินเก็บพ่อ คงเหลือรวม</span><Link to="/savings" className="num font-medium text-link"><CountUp value={savingsTotal} format={money(savingsTotal)} /></Link></div>
+            {latestSavings && <p className="mt-1 text-theme-xs text-gray-500 dark:text-gray-400">ล่าสุดปี {latestSavings.data.year}: <CountUp value={calcSavings(latestSavings.data).yearRemain} format={money(calcSavings(latestSavings.data).yearRemain)} /></p>}
           </div>
         </Card>
       </div>
 
-      <Card title={`สรุปตัวเงินรายเดือน ปี ${y}`} description="ตัวเลขทุกช่องคำนวณจากสมุดรายรับด้วยสูตรเดิมของ Excel" bodyClassName="p-0">
+      <Card className="rise" style={delay(480)} title={`สรุปตัวเงินรายเดือน ปี ${y}`} description="ตัวเลขทุกช่องคำนวณจากสมุดรายรับด้วยสูตรเดิมของ Excel" bodyClassName="p-0">
         <div className="custom-scrollbar overflow-x-auto">
           <table className="w-full min-w-176 text-end">
             <thead>
@@ -193,13 +201,13 @@ export default function Dashboard() {
                 return (
                   <tr key={i} className={cn(future && "text-gray-500 dark:text-gray-400", y === today.year && i + 1 === today.month && "bg-brand-25 dark:bg-brand-500/5")}>
                     <td className="app-td text-start">{monthName(i + 1)}{mm.legacyIncome || mm.legacyNoCollect ? <span className="ms-2 text-[10px] text-warning-600">สูตรเดิม</span> : null}</td>
-                    <td className="app-td"><Baht value={mm.income} dash={false} /></td>
-                    <td className="app-td"><Baht value={mm.toFather} dash={false} /></td>
-                    <td className="app-td"><Baht value={mm.payAunt} dash={false} /></td>
-                    <td className="app-td"><Baht value={mm.totalExpense} dash={false} /></td>
-                    <td className="app-td"><Baht value={mm.collect} dash={false} /></td>
-                    <td className="app-td"><Baht value={mm.net} signColor dash={false} /></td>
-                    <td className="app-td"><Baht value={runningBy[i]} signColor dash={false} /></td>
+                    <td className="app-td"><Baht animate value={mm.income} dash={false} /></td>
+                    <td className="app-td"><Baht animate value={mm.toFather} dash={false} /></td>
+                    <td className="app-td"><Baht animate value={mm.payAunt} dash={false} /></td>
+                    <td className="app-td"><Baht animate value={mm.totalExpense} dash={false} /></td>
+                    <td className="app-td"><Baht animate value={mm.collect} dash={false} /></td>
+                    <td className="app-td"><Baht animate value={mm.net} signColor dash={false} /></td>
+                    <td className="app-td"><Baht animate value={runningBy[i]} signColor dash={false} /></td>
                   </tr>
                 );
               })}
@@ -207,13 +215,13 @@ export default function Dashboard() {
             <tfoot>
               <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold text-gray-900 dark:border-gray-700 dark:bg-white/3 dark:text-white">
                 <td className="app-td text-start">รวมทั้งปี</td>
-                <td className="app-td"><Baht value={calc.totals.income} dash={false} /></td>
-                <td className="app-td"><Baht value={calc.totals.toFather} dash={false} /></td>
-                <td className="app-td"><Baht value={calc.totals.payAunt} dash={false} /></td>
-                <td className="app-td"><Baht value={calc.totals.totalExpense} dash={false} /></td>
-                <td className="app-td"><Baht value={calc.totals.collect} dash={false} /></td>
-                <td className="app-td"><Baht value={calc.totals.net} signColor dash={false} /></td>
-                <td className="app-td"><Baht value={calc.cumulative} signColor dash={false} /></td>
+                <td className="app-td"><Baht animate value={calc.totals.income} dash={false} /></td>
+                <td className="app-td"><Baht animate value={calc.totals.toFather} dash={false} /></td>
+                <td className="app-td"><Baht animate value={calc.totals.payAunt} dash={false} /></td>
+                <td className="app-td"><Baht animate value={calc.totals.totalExpense} dash={false} /></td>
+                <td className="app-td"><Baht animate value={calc.totals.collect} dash={false} /></td>
+                <td className="app-td"><Baht animate value={calc.totals.net} signColor dash={false} /></td>
+                <td className="app-td"><Baht animate value={calc.cumulative} signColor dash={false} /></td>
               </tr>
             </tfoot>
           </table>

@@ -64,6 +64,9 @@ export default function ComboChart({ categories, series, height = 280, format, a
   const cx = (i: number) => PAD.left + band * i + band / 2;
   const axisFmt = axis ?? ((v: number) => String(v));
 
+  // new data (another year) replays the drawing; hovering and resizing do not
+  const drawKey = series.map((s) => s.data.join(",")).join("|");
+
   const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     const i = Math.floor((e.clientX - r.left - PAD.left) / band);
@@ -79,7 +82,7 @@ export default function ComboChart({ categories, series, height = 280, format, a
       </ul>
       <svg width={width} height={height} role="img" aria-label={label} onPointerMove={onMove} onPointerLeave={() => setHover(null)} className="block touch-pan-y">
         {ticks.map((t) => (
-          <g key={t}>
+          <g key={t} className="chart-fade">
             <line x1={PAD.left} x2={width - PAD.right} y1={y(t)} y2={y(t)} className={t === 0 ? "stroke-gray-300 dark:stroke-gray-600" : "stroke-gray-100 dark:stroke-gray-800"} />
             <text x={PAD.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle" className="fill-gray-500 text-[11px] dark:fill-gray-400">{axisFmt(t)}</text>
           </g>
@@ -88,20 +91,23 @@ export default function ComboChart({ categories, series, height = 280, format, a
           <text key={c + i} x={cx(i)} y={height - 8} textAnchor="middle" className="fill-gray-500 text-[11px] dark:fill-gray-400">{c}</text>
         ))}
         {hover != null && <rect x={PAD.left + band * hover} y={PAD.top} width={band} height={plotH} className="fill-gray-900/4 dark:fill-white/5" />}
+        <g key={drawKey}>
         {bars.map((s, k) =>
           s.data.map((v, i) => {
             const x0 = cx(i) - groupW / 2 + k * (barW + 2);
             const top = Math.min(y(v), y(0));
             const h = Math.max(1, Math.abs(y(v) - y(0)));
-            return <rect key={i} x={x0} y={top} width={Math.max(2, barW)} height={h} rx={Math.min(4, barW / 2)} className={s.fill} />;
+            // bars grow out of the zero line: upwards for gains, downwards for negatives
+            return <rect key={`${k}-${i}`} x={x0} y={top} width={Math.max(2, barW)} height={h} rx={Math.min(4, barW / 2)} className={cn(s.fill, "chart-bar")} style={{ transformOrigin: v >= 0 ? "50% 100%" : "50% 0%", ["--i" as string]: i }} />;
           }),
         )}
         {series.filter((s) => s.type === "line").map((s) => (
           <g key={s.name}>
-            <path d={s.data.map((v, i) => `${i ? "L" : "M"}${cx(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ")} fill="none" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" className={s.stroke} />
+            <path d={s.data.map((v, i) => `${i ? "L" : "M"}${cx(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ")} pathLength={1} fill="none" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" className={cn(s.stroke, "chart-line")} />
             {s.data.map((v, i) => (hover === i || n <= 2 ? <circle key={i} cx={cx(i)} cy={y(v)} r={4} className={cn(s.fill, "stroke-white dark:stroke-gray-900")} strokeWidth={2} /> : null))}
           </g>
         ))}
+        </g>
       </svg>
       {hover != null && (
         <div

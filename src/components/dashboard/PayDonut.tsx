@@ -1,4 +1,6 @@
-import { useState } from "react";
+import CountUp from "@/components/app/CountUp";
+import { animate, reducedMotion } from "@/lib/motion";
+import { useEffect, useState } from "react";
 
 const SLICES = [
   { key: "full", label: "ชำระครบ", stroke: "stroke-success-500", dot: "bg-success-500" },
@@ -7,10 +9,21 @@ const SLICES = [
 ] as const;
 
 // Donut of how many vehicles have paid this month: green paid, gold part-paid, red not yet. Plain SVG.
-export default function PayDonut({ full, partial, none }: { full: number; partial: number; none: number }) {
+export default function PayDonut(props: { full: number; partial: number; none: number }) {
+  // new numbers (another year) draw the ring again from the start
+  return <Donut key={`${props.full}-${props.partial}-${props.none}`} {...props} />;
+}
+
+function Donut({ full, partial, none }: { full: number; partial: number; none: number }) {
   const values = { full, partial, none };
   const total = full + partial + none;
   const [hover, setHover] = useState<number | null>(null);
+  // the ring is drawn clockwise from the top once, and again when the numbers change
+  const [sweep, setSweep] = useState(reducedMotion() ? 1 : 0);
+  useEffect(() => {
+    if (reducedMotion()) return;
+    return animate(setSweep, { duration: 1300, delay: 250 });
+  }, []);
   const R = 82;
   const C = 2 * Math.PI * R;
   let offset = 0;
@@ -25,6 +38,7 @@ export default function PayDonut({ full, partial, none }: { full: number; partia
             if (!v) return null;
             const len = (v / total) * C;
             const gap = total > v ? 2 : 0;
+            const drawn = Math.min(len, Math.max(0, sweep * C - offset)); // how much of this slice the sweep has reached
             const el = (
               <circle
                 key={s.key}
@@ -33,7 +47,7 @@ export default function PayDonut({ full, partial, none }: { full: number; partia
                 r={R}
                 fill="none"
                 strokeWidth={hover === i ? 26 : 22}
-                strokeDasharray={`${Math.max(0, len - gap)} ${C - len + gap}`}
+                strokeDasharray={`${Math.max(0, Math.min(drawn, len - gap))} ${C}`}
                 strokeDashoffset={-offset}
                 className={`${s.stroke} transition-[stroke-width] duration-150`}
                 onPointerEnter={() => setHover(i)}
@@ -45,13 +59,13 @@ export default function PayDonut({ full, partial, none }: { full: number; partia
           })}
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="num text-3xl font-semibold text-gray-900 dark:text-white">{shown ? values[shown.key] : total}</span>
+          <CountUp className="num text-3xl font-semibold text-gray-900 dark:text-white" value={shown ? values[shown.key] : total} duration={shown ? 450 : 1100} delay={250} />
           <span className="text-theme-sm text-gray-500 dark:text-gray-400">{shown ? `${shown.label} (คัน)` : "ทั้งหมด (คัน)"}</span>
         </div>
       </div>
       <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-theme-sm text-gray-600 dark:text-gray-400">
         {SLICES.map((s) => (
-          <li key={s.key} className="flex items-center gap-1.5"><span className={`size-2.5 rounded-full ${s.dot}`} aria-hidden />{s.label} {values[s.key]}</li>
+          <li key={s.key} className="flex items-center gap-1.5"><span className={`size-2.5 rounded-full ${s.dot}`} aria-hidden />{s.label} <CountUp value={values[s.key]} delay={250} /></li>
         ))}
       </ul>
     </div>

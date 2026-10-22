@@ -1,18 +1,19 @@
 import { cn } from "@/utils";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 interface CardProps {
   title?: string;
-  description?: string;
+  description?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  style?: CSSProperties;
 }
 
-export default function Card({ title, description, actions, children, className, bodyClassName }: CardProps) {
+export default function Card({ title, description, actions, children, className, bodyClassName, style }: CardProps) {
   return (
-    <section className={cn("app-card overflow-hidden", className)}>
+    <section className={cn("app-card overflow-hidden", className)} style={style}>
       {(title || actions) && (
         <header className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
           <div>

@@ -1,6 +1,8 @@
 import ParkingScene from "@/components/common/ParkingScene";
 import { MoonGlyph, SunGlyph, ArrowRightGlyph } from "@/icons";
-import { bangkokClock, formatThaiDate, formatThaiTime } from "@/lib/format";
+import { bangkokClock, formatBaht, formatThaiDate, formatThaiTime } from "@/lib/format";
+import CountUp from "@/components/app/CountUp";
+import { settleBaht } from "@/lib/motion";
 import { useUser } from "@/lib/session";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
@@ -25,7 +27,7 @@ interface HeroProps {
   year: number;
   onYear: (y: number) => void;
   unpaidCount: number;
-  unpaidTotal: string; // already formatted
+  unpaidTotal: number; // satang
   showUnpaid: boolean;
   monthLabel: string;
 }
@@ -43,7 +45,7 @@ export default function GreetingBanner({ years, year, onYear, unpaidCount, unpai
   const Icon = p.night ? MoonGlyph : SunGlyph;
 
   return (
-    <section aria-label={p.text} className={`greet greet-hero greet-${p.id} h-full`}>
+    <section aria-label={p.text} className={`greet greet-hero greet-${p.id} rise h-full`}>
       <div className="greet-inner relative flex h-full min-h-60 flex-col justify-between gap-5 overflow-hidden p-5 text-white md:p-7">
         <ParkingScene bays={3} className="pointer-events-none absolute end-3 bottom-3 hidden w-[17rem] max-w-[44%] md:block xl:w-[21rem]" />
         <div className="relative flex items-start justify-between gap-3">
@@ -67,8 +69,8 @@ export default function GreetingBanner({ years, year, onYear, unpaidCount, unpai
             {showUnpaid && (
               <p className="text-theme-sm text-gray-300">
                 ยังไม่ได้เก็บเดือน{monthLabel}{" "}
-                <span className="num text-lg font-semibold text-white">{unpaidCount}</span> คัน
-                {unpaidCount > 0 && <> · <span className="num font-semibold text-gold-300">{unpaidTotal}</span> บาท</>}
+                <CountUp className="num text-lg font-semibold text-white" value={unpaidCount} /> คัน
+                {unpaidCount > 0 && <> · <CountUp className="num font-semibold text-gold-300" value={unpaidTotal} format={settleBaht(unpaidTotal, (v) => formatBaht(Math.round(v)))} /> บาท</>}
               </p>
             )}
             <Link to="/ledger" className="inline-flex h-11 items-center gap-2 rounded-lg bg-gold-400 px-5 text-theme-sm font-semibold text-gray-950 transition hover:bg-gold-300">
