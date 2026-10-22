@@ -36,3 +36,4 @@ server-dist/
 3d-model/preview/
 .claude/settings.local.json
 prompt.md
+.env*
