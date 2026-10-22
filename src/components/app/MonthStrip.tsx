@@ -1,4 +1,4 @@
-import { cellStatus, feeFor, type CellStatus } from "../../../shared/calc";
+import { monthStatus, type CellStatus } from "../../../shared/calc";
 import type { LedgerRow, Money } from "../../../shared/types";
 import { monthShort } from "@/lib/format";
 import { STATUS_LABEL } from "@/components/ledger/status";
@@ -13,7 +13,7 @@ const TONE: Record<CellStatus, string> = {
 };
 interface MonthStripProps {
   payments: Money[];
-  row: Pick<LedgerRow, "monthlyFee" | "feeChanges">;
+  row: Pick<LedgerRow, "monthlyFee" | "feeChanges" | "slotId" | "startMonth">;
   year: number;
   today: { year: number; month: number };
   className?: string;
@@ -25,7 +25,7 @@ export default function MonthStrip({ payments, row, year, today, className }: Mo
     <div className={cn("flex gap-0.5", className)} role="img" aria-label="สถานะการชำระ 12 เดือน">
       {payments.map((p, i) => {
         const future = year > today.year || (year === today.year && i + 1 > today.month);
-        const st = cellStatus(p, feeFor(row, i + 1), future);
+        const st = monthStatus(row, i + 1, p, future);
         return <span key={i} title={`${monthShort(i + 1)}: ${STATUS_LABEL[st]}`} className={cn("h-1.5 flex-1 rounded-full", TONE[st])} />;
       })}
     </div>

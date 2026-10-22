@@ -9,7 +9,7 @@ import { formatBaht, monthName, parseBaht } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
 import { useState } from "react";
-import { cellStatus, currentFee, feeFor, rowYearTotal } from "../../../shared/calc";
+import { currentFee, isYearly, monthStatus, rowYearTotal } from "../../../shared/calc";
 import type { LedgerRow, PayMethod } from "../../../shared/types";
 import { CELL_TONE } from "./status";
 
@@ -97,7 +97,7 @@ function MonthSheet({ row, year, today, editable, onClose, onEditRow }: MonthShe
       open
       onClose={onClose}
       title={row.ownerName}
-      description={`${row.plate || "ไม่มีทะเบียน"} · ค่าเช่า ${formatBaht(currentFee(row, today))} บาท/เดือน${row.feeChanges.length ? " (ปรับราคาในปีนี้)" : ""}`}
+      description={`${row.plate || "ไม่มีทะเบียน"} · ค่าเช่า ${formatBaht(currentFee(row, today))} บาท/${isYearly(row) ? `ปี (จ่ายเดือน${monthName(row.startMonth)})` : "เดือน"}${row.feeChanges.length && !isYearly(row) ? " (ปรับราคาในปีนี้)" : ""}`}
       footer={
         editable ? (
           <>
@@ -114,7 +114,7 @@ function MonthSheet({ row, year, today, editable, onClose, onEditRow }: MonthShe
           const m = i + 1;
           const future = year > today.year || (year === today.year && m > today.month);
           const parsed = parseBaht(draft[i] ?? "");
-          const status = cellStatus(parsed === "invalid" ? null : parsed, feeFor(row, m), future);
+          const status = monthStatus(row, m, parsed === "invalid" ? null : parsed, future);
           return (
             <label key={m} className="block">
               <span className="mb-1 block text-theme-xs text-gray-500 dark:text-gray-400">{monthName(m)}</span>

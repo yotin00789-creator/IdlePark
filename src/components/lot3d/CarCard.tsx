@@ -9,7 +9,7 @@ import { emptyLabel, toneLabel, type LotCar } from "@/lib/lot";
 import { cn } from "@/utils";
 import { VEHICLE_SIZE, slotLabel, vehicleLabel } from "../../../shared/lot";
 import { useState } from "react";
-import { currentFee, isPrepaid } from "../../../shared/calc";
+import { currentFee, isPrepaid, isYearly } from "../../../shared/calc";
 import type { LedgerRow } from "../../../shared/types";
 import type { SlotDef, ViewMode } from "./LotScene";
 import PlateBadge from "./PlateBadge";
@@ -108,7 +108,7 @@ export default function CarCard(p: CarCardProps) {
                 </span>
               )}
             </Item>
-            <Item label="ค่าเช่า/เดือน"><Baht value={currentFee(car.row, today)} dash={false} /> บาท</Item>
+            <Item label={isYearly(car.row) ? "ค่าเช่า/ปี" : "ค่าเช่า/เดือน"}><Baht value={currentFee(car.row, today)} dash={false} /> บาท</Item>
             <Item label="นัดชำระ">ทุกวันที่ {car.row.dueDay ?? dueDay}{car.row.dueDay == null && <span className="text-theme-xs font-normal text-gray-500 dark:text-gray-400"> (ค่าเริ่มต้น)</span>}</Item>
             <Item label="เริ่มเช่า">{car.row.startMonth === 1 ? `ต้นปี ${today.year}` : `${monthName(car.row.startMonth)} ${today.year}`}</Item>
             <Item label="จ่ายล่วงหน้าถึง">

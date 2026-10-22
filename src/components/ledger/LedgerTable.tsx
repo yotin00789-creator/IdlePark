@@ -8,7 +8,7 @@ import { confirmItemChanges, savePayments, saveItems, useData, type ItemChange, 
 import { modeFields, payMode } from "@/lib/payMode";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
-import { cellStatus, feeFor, rowYearTotal, isPrepaid } from "../../../shared/calc";
+import { monthStatus, rowYearTotal, isPrepaid } from "../../../shared/calc";
 import type { ItemKind, LedgerRow, YearCalc, YearData } from "../../../shared/types";
 import { CELL_TONE } from "./status";
 
@@ -128,7 +128,7 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
         {MONTHS.map((m) => {
           const amount = row.payments[m - 1];
           const prepaid = isPrepaid(row, year.year, m) && amount == null;
-          const status = cellStatus(amount, feeFor(row, m), isFuture(m));
+          const status = monthStatus(row, m, amount, isFuture(m));
           return (
             <td key={m} className={cn(cellBase, "group/cell relative")}>
               {(amount ?? 0) > 0 && <MethodChip method={row.payMethods[m - 1]} bank={accounts.find((a) => a.id === row.payAccounts[m - 1])?.bank} editable={editable} onFlip={() => flip(row, m)} />}

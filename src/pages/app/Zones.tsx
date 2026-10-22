@@ -15,7 +15,7 @@ import { canEdit, useAuth } from "@/lib/session";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
 import { Suspense, lazy, useMemo, useState } from "react";
-import { currentFee } from "../../../shared/calc";
+import { monthlyEquivalent } from "../../../shared/calc";
 import { SLOT_GROUPS, SLOT_IDS, baysIn, bayGrid, isMotorcycle, isStorageSlot, slotLabel, slotNumber } from "../../../shared/lot";
 import type { LedgerRow } from "../../../shared/types";
 
@@ -40,7 +40,7 @@ export default function Zones() {
     return {
       count: mine.length,
       unplaced: motos ? 0 : mine.filter((r) => !r.slotId).length,
-      monthly: mine.reduce((n, r) => n + currentFee(r, data.today), 0),
+      monthly: mine.reduce((n, r) => n + monthlyEquivalent(r, data.today), 0),
       motos,
       used: z.motoCapacity ? motos : usedSlots,
       total: z.motoCapacity ? z.motoCapacity : slotCount || z.capacity || 0,
@@ -98,7 +98,7 @@ export default function Zones() {
                       <span className="font-medium text-gray-700 dark:text-gray-300">ผู้เช่าที่ยังไม่ได้เลือกโซน ({none.length} ราย)</span>
                       <span className="block text-theme-xs text-gray-500 dark:text-gray-400">{none.map((r) => `${r.ownerName}${r.plate ? ` (${r.plate})` : ""}`).join(" · ")} — เปิดที่สมุดรายรับหรือผังที่จอด แล้วเลือกช่อง/โซนให้แถวนี้</span>
                     </td>
-                    <td className="app-td num text-end">{none.length}</td><td className="app-td text-end">—</td><td className="app-td text-end"><Baht value={none.reduce((n, r) => n + currentFee(r, data.today), 0)} dash={false} /></td><td />
+                    <td className="app-td num text-end">{none.length}</td><td className="app-td text-end">—</td><td className="app-td text-end"><Baht value={none.reduce((n, r) => n + monthlyEquivalent(r, data.today), 0)} dash={false} /></td><td />
                   </tr>
                 )}
                 {free.length > 0 && (

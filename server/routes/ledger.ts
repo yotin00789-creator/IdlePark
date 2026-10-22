@@ -344,9 +344,9 @@ route("POST", "/ledger/years/:year/copy-previous", EDIT as any, async (c) => {
     let i = 0;
     for (const r of prev) {
       await q.query(
-        `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, note, slot_id, vehicle_type, car_color, plate_province, due_day, bay)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'',$10,$11,$12,$13,$14,$15)`,
-        [y, i++, r.customer_id, r.owner_name, r.plate, r.zone_id, r.kind, r.bulk_count, feeFor({ monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [] }, 12), r.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, r.bay],
+        `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, note, slot_id, vehicle_type, car_color, plate_province, due_day, bay, start_month)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'',$10,$11,$12,$13,$14,$15,$16)`,
+        [y, i++, r.customer_id, r.owner_name, r.plate, r.zone_id, r.kind, r.bulk_count, feeFor({ monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [] }, 12), r.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, r.bay, r.slot_id === "K01" ? r.start_month : 1], // the shed keeps its yearly payment month
       );
     }
     await audit(c, { action: "year.copy", entity: "year", entityId: y, summary: `คัดลอกผู้เช่า ${prev.length} แถวจากปี ${y - 1} ไปปี ${y}` }, q);

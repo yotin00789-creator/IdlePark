@@ -1,4 +1,4 @@
-import { currentFee } from "../../../shared/calc";
+import { monthlyEquivalent } from "../../../shared/calc";
 import Baht from "@/components/app/Baht";
 import Button from "@/components/app/Button";
 import Card from "@/components/app/Card";
@@ -30,7 +30,7 @@ export default function Customers() {
       .filter((c) => (scope === "all" || (c.isActive && thisYear.some((r) => r.customerId === c.id && r.kind !== "excluded"))) && (!term || `${c.name}${c.phone}${c.email}${thisYear.filter((r) => r.customerId === c.id).map((r) => r.plate).join("")}`.toLowerCase().replace(/\s+/g, "").includes(term)))
       .map((c) => {
         const vehicles = thisYear.filter((r) => r.customerId === c.id && r.kind !== "excluded");
-        return { c, vehicles, monthly: vehicles.filter((v) => v.isActive).reduce((n, v) => n + currentFee(v, data.today), 0) };
+        return { c, vehicles, monthly: vehicles.filter((v) => v.isActive).reduce((n, v) => n + monthlyEquivalent(v, data.today), 0) };
       });
   }, [data, q, scope, year]);
 

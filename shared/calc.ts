@@ -1,5 +1,6 @@
 // Single source of truth for every number in the system. Pure functions only:
 // the web app, the API and the tests all import this file.
+import { isStorageSlot } from "./lot.js";
 import type {
   CalcOverride,
   LedgerRow,
@@ -147,17 +148,38 @@ export interface Unpaid {
   due: number; // satang still outstanding
 }
 
-/** What one month costs for this row: the last price change at or before the month, else the starting price. */
-export function feeFor(row: Pick<LedgerRow, "monthlyFee" | "feeChanges">, month: number): number {
+/** The storage shed (K01) is paid once a year, in the month the tenancy starts; everything else is paid monthly. */
+export const isYearly = (row: { slotId?: string | null }) => isStorageSlot(row.slotId);
+type PricedRow = Pick<LedgerRow, "monthlyFee" | "feeChanges"> & Partial<Pick<LedgerRow, "slotId" | "startMonth">>;
+
+/** The price in force in a given month (the last change at or before it, else the starting price). */
+function priceAt(row: Pick<LedgerRow, "monthlyFee" | "feeChanges">, month: number): number {
   let fee = row.monthlyFee;
   let from = 0;
   for (const c of row.feeChanges ?? []) if (c.month <= month && c.month >= from) { fee = c.fee; from = c.month; }
   return fee;
 }
 
-/** The price to show for a row "now": this month for the current year, the last month of a past year, the first of a future year. */
-export function currentFee(row: Pick<LedgerRow, "monthlyFee" | "feeChanges" | "year">, today: { year: number; month: number }): number {
-  return feeFor(row, row.year < today.year ? 12 : row.year === today.year ? today.month : 1);
+/** What one month costs for this row. A yearly row owes its whole year's fee in its payment month and nothing in the others. */
+export function feeFor(row: PricedRow, month: number): number {
+  if (isYearly(row)) return month === (row.startMonth ?? 1) ? priceAt(row, month) : 0;
+  return priceAt(row, month);
+}
+
+/** The price to show for a row "now": this month for the current year, the last month of a past year, the first of a future year. A yearly row shows its yearly fee. */
+export function currentFee(row: PricedRow & Pick<LedgerRow, "year">, today: { year: number; month: number }): number {
+  if (isYearly(row)) return priceAt(row, row.startMonth ?? 1);
+  return priceAt(row, row.year < today.year ? 12 : row.year === today.year ? today.month : 1);
+}
+
+/** What the row brings in per month on average: its fee for a monthly row, a twelfth of it for a yearly one. */
+export const monthlyEquivalent = (row: PricedRow & Pick<LedgerRow, "year">, today: { year: number; month: number }) =>
+  isYearly(row) ? Math.round(currentFee(row, today) / 12) : currentFee(row, today);
+
+/** Colour class of one month's cell: a yearly row is neutral in the months it owes nothing. */
+export function monthStatus(row: PricedRow, month: number, amount: number | null, isFuture: boolean): CellStatus {
+  if (isYearly(row) && month !== (row.startMonth ?? 1) && amount == null) return "future";
+  return cellStatus(amount, feeFor(row, month), isFuture);
 }
 
 /** The price steps of a row for display: [{ from: 1, fee }, { from: 3, fee }]. */
@@ -182,7 +204,9 @@ export function findUnpaid(
   const first = Math.max(1, currentMonth - Math.max(0, lookbackMonths));
   for (const row of rows) {
     if (!row.isActive || row.kind === "excluded") continue;
-    for (let m = first; m <= currentMonth; m++) {
+    // a yearly row stays unpaid from its payment month until it is paid, however long ago that was
+    const start = isYearly(row) ? Math.min(first, row.startMonth) : first;
+    for (let m = start; m <= currentMonth; m++) {
       if (m < row.startMonth || (row.endMonth != null && m > row.endMonth)) continue;
       if (isPrepaid(row, year, m)) continue;
       const fee = feeFor(row, m); // each month at the price of that month

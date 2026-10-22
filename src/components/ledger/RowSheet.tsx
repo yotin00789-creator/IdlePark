@@ -62,7 +62,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
   const save = async () => {
     const feeParsed = parseBaht(fee);
     if (!name.trim()) return setError("กรุณากรอกชื่อผู้เช่า");
-    if (feeParsed === "invalid" || feeParsed == null || feeParsed <= 0) return setError("ค่าเช่าต่อเดือนต้องเป็นตัวเลขมากกว่า 0");
+    if (feeParsed === "invalid" || feeParsed == null || feeParsed <= 0) return setError(`${storage ? "ค่าเช่าต่อปี" : "ค่าเช่าต่อเดือน"}ต้องเป็นตัวเลขมากกว่า 0`);
     setBusy(true);
     setError(null);
     const body = {
@@ -75,7 +75,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
       zoneId: lot.zoneId ? Number(lot.zoneId) : null,
       dueDay: lot.dueDay ? Number(lot.dueDay) : null,
       monthlyFee: feeParsed,
-      ...(row && feeParsed !== startFee ? { feeFrom: Number(feeFrom) } : {}),
+      ...(row && feeParsed !== startFee ? { feeFrom: storage ? 1 : Number(feeFrom) } : {}),
       kind,
       startMonth: Number(startMonth),
       endMonth: endMonth ? Number(endMonth) : null,
@@ -163,9 +163,9 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
         <ComboField label="ชื่อผู้เช่า" value={name} onChange={setName} options={nameOptions} placeholder="เลือกลูกค้าเดิมหรือพิมพ์ชื่อใหม่" newHint={(v) => `ไม่มีลูกค้าชื่อ “${v}” ระบบจะเพิ่มเป็นลูกค้าใหม่`} />
         <div className="grid grid-cols-2 gap-4">
           <TextField label={storage ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder={storage ? "คลังเก็บของ" : "เช่น 1กข 1234"} />
-          <TextField label="ค่าเช่าต่อเดือน (บาท)" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />
+          <TextField label={storage ? "ค่าเช่าต่อปี (บาท)" : "ค่าเช่าต่อเดือน (บาท)"} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={storage ? "คลังเก็บของจ่ายปีละครั้ง" : row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />
         </div>
-        {row && priceChanged && (
+        {row && priceChanged && !storage && (
           <div className="rounded-lg border border-gold-300 bg-gold-50/60 p-3 dark:border-gold-500/40 dark:bg-gold-500/10">
             <SelectField label="ใช้ราคาใหม่ตั้งแต่เดือน" value={feeFrom} onChange={(e) => setFeeFrom(e.target.value)} hint={`เดือนก่อนหน้านั้นยังคิดราคาเดิม ไม่เปลี่ยนยอดค้างหรือยอดที่เก็บไปแล้ว${row.year < data.today.year ? " (นี่คือปีที่ผ่านมาแล้ว)" : ""}`}>
               {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m} {row.year}</option>)}
@@ -183,7 +183,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
           {(Object.keys(KIND) as RowKind[]).map((k) => <option key={k} value={k}>{KIND[k]}</option>)}
         </SelectField>
         <div className="grid grid-cols-2 gap-4">
-          <SelectField label="เริ่มเช่าเดือน" value={startMonth} onChange={(e) => setStartMonth(e.target.value)} hint="เดือนก่อนหน้านี้ไม่ถูกแจ้งว่าค้าง">
+          <SelectField label={storage ? "จ่ายประจำปีในเดือน" : "เริ่มเช่าเดือน"} value={startMonth} onChange={(e) => setStartMonth(e.target.value)} hint={storage ? "เก็บค่าเช่าคลังปีละครั้งในเดือนนี้ ถ้ายังไม่จ่ายระบบแจ้งเตือนจนกว่าจะบันทึกรับเงิน" : "เดือนก่อนหน้านี้ไม่ถูกแจ้งว่าค้าง"}>
             {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </SelectField>
           <SelectField label="สิ้นสุดเดือน" value={endMonth} onChange={(e) => setEndMonth(e.target.value)} hint="เว้นว่างถ้ายังเช่าอยู่">

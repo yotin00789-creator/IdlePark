@@ -142,7 +142,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
                           <span className="text-theme-xs text-gray-600 dark:text-gray-400">{r.vehicleType ? vehicleLabel(r.vehicleType) : "ไม่ระบุประเภท"}</span>
                         </span>
                         <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-                          {r.slotId ? slotLabel(r.slotId) : "ยังไม่ระบุช่อง"} · {formatBaht(currentFee(r, data.today))} บาท/เดือน · นัดชำระวันที่ {r.dueDay ?? data.settings.reminders.dueDay}{r.dueDay == null ? " (เริ่มต้น)" : ""}{!r.isActive && " · เลิกเช่า"}
+                          {r.slotId ? slotLabel(r.slotId) : "ยังไม่ระบุช่อง"} · {formatBaht(currentFee(r, data.today))} บาท/{isStorageSlot(r.slotId) ? "ปี" : "เดือน"} · นัดชำระวันที่ {r.dueDay ?? data.settings.reminders.dueDay}{r.dueDay == null ? " (เริ่มต้น)" : ""}{!r.isActive && " · เลิกเช่า"}
                         </span>
                       </span>
                       {editable && <button onClick={() => setRowEdit({ row: r })} className="shrink-0 text-theme-sm text-link">แก้ไข</button>}
@@ -166,7 +166,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
                 <div key={i} className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <div className="grid grid-cols-2 gap-3">
                     <TextField label="ทะเบียนรถ" value={v.plate} onChange={(e) => setVehicle(i, { plate: e.target.value })} placeholder="1กข 1234" />
-                    <TextField label="ค่าเช่า/เดือน (บาท)" inputMode="decimal" value={v.fee} onChange={(e) => setVehicle(i, { fee: e.target.value })} />
+                    <TextField label={isStorageSlot(v.slotId) ? "ค่าเช่า/ปี (บาท)" : "ค่าเช่า/เดือน (บาท)"} inputMode="decimal" value={v.fee} onChange={(e) => setVehicle(i, { fee: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <DueDayField value={v.dueDay} onChange={(d) => setVehicle(i, { dueDay: d })} defaultDay={data.settings.reminders.dueDay} />

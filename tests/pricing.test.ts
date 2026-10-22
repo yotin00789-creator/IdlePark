@@ -61,3 +61,35 @@ describe("price change API", () => {
     expect((await rows()).find((r) => r.plate === "2ขข 2")).toMatchObject({ monthlyFee: 120000, feeChanges: [{ month: 6, fee: 140000 }] });
   });
 });
+
+describe("the storage shed is paid once a year", () => {
+  const shed: any = { id: 1, year: 2569, slotId: "K01", monthlyFee: 600000, feeChanges: [], startMonth: 3, endMonth: null, isActive: true, kind: "normal", paidThroughYear: null, paidThroughMonth: null, payments: Array(12).fill(null) };
+
+  it("owes the whole fee in its payment month and nothing in the other months", () => {
+    expect([1, 2, 3, 4, 12].map((m) => feeFor(shed, m))).toEqual([0, 0, 600000, 0, 0]);
+    expect(currentFee(shed, { year: 2569, month: 7 })).toBe(600000);
+  });
+
+  it("stays unpaid from the payment month until it is paid, however far back that was", () => {
+    // October, 2 months of look-back: a monthly row would not look back to March, the yearly one does
+    expect(findUnpaid([shed], 2569, 10, 2).map((u) => [u.month, u.due])).toEqual([[3, 600000]]);
+    expect(findUnpaid([shed], 2569, 2, 2)).toEqual([]); // not yet due in February
+    const paid = { ...shed, payments: shed.payments.map((_: any, i: number) => (i === 2 ? 600000 : null)) };
+    expect(findUnpaid([paid], 2569, 10, 2)).toEqual([]);
+    const part = { ...shed, payments: shed.payments.map((_: any, i: number) => (i === 2 ? 200000 : null)) };
+    expect(findUnpaid([part], 2569, 10, 2).map((u) => [u.month, u.due])).toEqual([[3, 400000]]);
+  });
+
+  it("a monthly row is unaffected, and the next year keeps the shed's payment month", async () => {
+    const monthly = { ...shed, slotId: "N01" };
+    expect(feeFor(monthly, 5)).toBe(600000);
+    await freshApp();
+    const admin = await setupAdmin();
+    const y = bangkokToday().year;
+    const made = (await admin.post("/ledger/rows", { year: y, ownerName: "เช่าคลัง", plate: "คลัง", slotId: "K01", monthlyFee: 600000, startMonth: 5 })).json.row;
+    expect(made.startMonth).toBe(5);
+    await admin.post(`/ledger/years/${y + 1}/copy-previous`, {});
+    const next = (await admin.get("/data")).json.years.find((x: any) => x.year === y + 1).rows.find((r: any) => r.slotId === "K01");
+    expect(next).toMatchObject({ startMonth: 5, monthlyFee: 600000 });
+  });
+});

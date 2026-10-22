@@ -7,7 +7,7 @@ import { modeFields, payMode, usePayMode } from "@/lib/payMode";
 import { formatBaht, monthName, parseBaht } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { useState } from "react";
-import { feeFor } from "../../../shared/calc";
+import { feeFor, isYearly } from "../../../shared/calc";
 import type { LedgerRow } from "../../../shared/types";
 
 interface PayDialogProps {
@@ -56,7 +56,7 @@ function Form({ target, onClose }: { target: NonNullable<PayDialogProps["target"
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         error={error}
-        hint={paid > 0 ? `เดือนนี้จ่ายไว้แล้ว ${formatBaht(paid)} บาท จะนำมารวมให้` : `ค่าเช่า ${formatBaht(feeFor(row, month))} บาท/เดือน`}
+        hint={paid > 0 ? `เดือนนี้จ่ายไว้แล้ว ${formatBaht(paid)} บาท จะนำมารวมให้` : isYearly(row) ? `ค่าเช่าคลังเก็บของ ${formatBaht(feeFor(row, month))} บาท/ปี` : `ค่าเช่า ${formatBaht(feeFor(row, month))} บาท/เดือน`}
       />
       <div className="mt-5">
         <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">รับเงินด้วย</span>
