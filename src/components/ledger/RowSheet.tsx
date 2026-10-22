@@ -102,9 +102,20 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
     if (!row) return;
     setBusy(true);
     try {
-      await api.del(`/ledger/rows/${row.id}`);
+      const res = await api.del<{ auditId: number | null }>(`/ledger/rows/${row.id}`);
       await dataStore.load(true);
-      toast.success("ลบแถวแล้ว");
+      const auditId = res.auditId;
+      toast.success("ลบแถวแล้ว", `${row.ownerName}${row.plate ? ` (${row.plate})` : ""} — ถ้าลบผิด กด “เลิกทำ”`, auditId == null ? undefined : {
+        label: "เลิกทำ",
+        run: () => {
+          api.post<{ note?: string }>(`/audit/${auditId}/restore`, {})
+            .then(async (r) => {
+              await dataStore.load(true);
+              toast.success("กู้คืนแล้ว", r.note || `${row.ownerName} กลับมาพร้อมยอดชำระเดิม`);
+            })
+            .catch((e) => toast.error("กู้คืนไม่ได้", errorMessage(e)));
+        },
+      });
       onClose();
     } catch (e) {
       setError(errorMessage(e));

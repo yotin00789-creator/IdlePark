@@ -21,15 +21,15 @@ const clip = (v: unknown) => {
 };
 
 /** Never throws: auditing must not break the action itself. */
-export async function audit(c: Ctx, input: AuditInput, q: Queryable = c.db) {
+export async function audit(c: Ctx, input: AuditInput, q: Queryable = c.db): Promise<number | null> {
   try {
     const u = c.user;
     const a = input.actor;
-    await q.query(
+    const rows = await q.query<{ id: number }>(
       `insert into audit_log
          (user_id, user_email, user_name, role, action, entity, entity_id, summary,
           before, after, ip, user_agent, method, path, status)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15)`,
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15) returning id`,
       [
         a?.id ?? u?.id ?? null,
         a?.email ?? u?.email ?? "",
@@ -48,7 +48,9 @@ export async function audit(c: Ctx, input: AuditInput, q: Queryable = c.db) {
         input.status ?? "ok",
       ],
     );
+    return rows[0]?.id ?? null;
   } catch (e) {
     console.error("[audit]", e);
+    return null;
   }
 }

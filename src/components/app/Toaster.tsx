@@ -34,6 +34,17 @@ export default function Toaster() {
               <div className="min-w-0 flex-1">
                 <p className="text-theme-sm leading-snug font-semibold">{t.text}</p>
                 {t.detail && <p className="mt-0.5 text-theme-xs leading-relaxed text-gray-500 dark:text-gray-400">{t.detail}</p>}
+                {t.action && (
+                  <button
+                    onClick={() => {
+                      dismiss(t.id);
+                      t.action!.run();
+                    }}
+                    className="mt-2 rounded-lg bg-gray-900 px-3 py-1.5 text-theme-xs font-semibold text-white hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                  >
+                    {t.action.label}
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => dismiss(t.id)}

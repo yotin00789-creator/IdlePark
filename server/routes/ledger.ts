@@ -258,6 +258,18 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
   const lot = lotFields(b, cur);
   Object.assign(n, lot);
   await c.db.tx(async (q) => {
+    // who the vehicle belongs to follows the name: fixing a typo (or picking another customer) moves the vehicle
+    // to that customer, so the Customers page, the 3D card and the ledger always agree
+    let customerId: number | null = cur.customer_id;
+    if (b.customerId != null) {
+      const [exists] = await q.query("select id from customers where id = $1", [Number(b.customerId)]);
+      if (!exists) throw new HttpError(400, "ไม่พบลูกค้าที่เลือก");
+      customerId = exists.id;
+    } else if (n.owner_name !== cur.owner_name) customerId = await ensureCustomer(q, n.owner_name);
+    if (b.customerId != null) {
+      const [who] = await q.query("select name from customers where id = $1", [customerId]);
+      n.owner_name = who.name;
+    }
     const place = await resolvePlacement(q, {
       year: cur.year, rowId: id, vehicleType: n.vehicle_type, zoneId: n.zone_id, slotId: n.slot_id,
       bay: b.bay !== undefined ? (b.bay === null ? null : Number(b.bay)) : n.slot_id === cur.slot_id && n.vehicle_type === cur.vehicle_type && n.zone_id === cur.zone_id ? cur.bay : null,
@@ -269,9 +281,19 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
     await q.query(
       `update ledger_rows set owner_name=$2, plate=$3, zone_id=$4, kind=$5, monthly_fee=$6, is_active=$7, needs_review=$8,
          note=$9, start_month=$10, end_month=$11, paid_through_year=$12, paid_through_month=$13, sort_order=$14,
-         slot_id=$15, vehicle_type=$16, car_color=$17, plate_province=$18, due_day=$19, bay=$20, fee_changes=$21::jsonb where id=$1`,
-      [id, n.owner_name, n.plate, n.zone_id, n.kind, n.monthly_fee, n.is_active, n.needs_review, n.note, n.start_month, n.end_month, n.paid_through_year, n.paid_through_month, n.sort_order, n.slot_id, n.vehicle_type, n.car_color, n.plate_province, n.due_day, n.bay, JSON.stringify(n.fee_changes)],
+         slot_id=$15, vehicle_type=$16, car_color=$17, plate_province=$18, due_day=$19, bay=$20, fee_changes=$21::jsonb, customer_id=$22 where id=$1`,
+      [id, n.owner_name, n.plate, n.zone_id, n.kind, n.monthly_fee, n.is_active, n.needs_review, n.note, n.start_month, n.end_month, n.paid_through_year, n.paid_through_month, n.sort_order, n.slot_id, n.vehicle_type, n.car_color, n.plate_province, n.due_day, n.bay, JSON.stringify(n.fee_changes), customerId],
     );
+    // the customer made by a typo is removed when nothing else uses it and it holds no contact details
+    let cleaned = "";
+    if (cur.customer_id != null && customerId !== cur.customer_id) {
+      const [left] = await q.query<{ n: number }>("select count(*)::int as n from ledger_rows where customer_id = $1", [cur.customer_id]);
+      const [old] = await q.query("select name, phone, email, note from customers where id = $1", [cur.customer_id]);
+      if (left.n === 0 && old && !old.phone && !old.email && !old.note) {
+        await q.query("delete from customers where id = $1", [cur.customer_id]);
+        cleaned = ` · ลบลูกค้า “${old.name}” ที่ไม่มีรถแล้ว`;
+      }
+    }
     // the same vehicle in later years continues at the new price (those years had their own copy of the old one)
     let later = 0;
     if (feeNote) {
@@ -282,7 +304,7 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
       );
       later = r.length;
     }
-    await audit(c, { action: "row.update", entity: "ledger_row", entityId: id, summary: `แก้ไขผู้เช่า ${n.owner_name}${n.plate ? ` (${n.plate})` : ""} ปี ${cur.year}${feeNote}${later ? ` · ปีถัดไป ${later} แถวใช้ราคาใหม่ต่อ` : ""}`, before: pick(cur), after: pick(n) }, q);
+    await audit(c, { action: "row.update", entity: "ledger_row", entityId: id, summary: `แก้ไขผู้เช่า ${n.owner_name}${n.plate ? ` (${n.plate})` : ""} ปี ${cur.year}${feeNote}${later ? ` · ปีถัดไป ${later} แถวใช้ราคาใหม่ต่อ` : ""}${cleaned}`, before: pick(cur), after: pick(n) }, q);
   });
   const [row] = await c.db.query("select * from ledger_rows where id = $1", [id]);
   return { row: rowFromDb(row) };
@@ -294,10 +316,11 @@ route("DELETE", "/ledger/rows/:id", EDIT as any, async (c) => {
   const [cur] = await c.db.query("select * from ledger_rows where id = $1", [id]);
   if (!cur) throw new HttpError(404, "ไม่พบแถว");
   const pays = await c.db.query("select month, amount, method, account_id, updated_at, updated_by from payments where row_id = $1 order by month", [id]);
+  let auditId: number | null = null;
   await c.db.tx(async (q) => {
     await q.query("delete from ledger_rows where id = $1", [id]);
     // the whole row and its payments go into the audit entry, so “restore” can bring it back exactly
-    await audit(c, {
+    auditId = await audit(c, {
       action: "row.delete",
       entity: "ledger_row",
       entityId: id,
@@ -305,7 +328,7 @@ route("DELETE", "/ledger/rows/:id", EDIT as any, async (c) => {
       before: { ownerName: cur.owner_name, plate: cur.plate, slotId: cur.slot_id, snapshot: { row: cur, payments: pays } },
     }, q);
   });
-  return { ok: true, restorable: true };
+  return { ok: true, restorable: true, auditId };
 });
 
 route("POST", "/ledger/years/:year/copy-previous", EDIT as any, async (c) => {
@@ -562,9 +585,11 @@ route("DELETE", "/zones/:id", EDIT as any, async (c) => {
 // ------------------------------------------------------- restore deleted things
 
 /** Bring back something that was deleted, from the snapshot the delete left in the audit log. */
-route("POST", "/audit/:id/restore", ADMIN as any, async (c) => {
+route("POST", "/audit/:id/restore", EDIT as any, async (c) => {
   const auditId = Number(c.params.id);
-  const [a] = await c.db.query("select id, action, entity_id, before from audit_log where id = $1", [auditId]);
+  const [a] = await c.db.query("select id, action, entity_id, before, user_id, at from audit_log where id = $1", [auditId]);
+  // admins restore anything; an editor can take back their own delete of a row for 30 minutes (the "undo" button)
+  if (a && c.user!.role !== "admin" && !(a.action === "row.delete" && a.user_id === c.user!.id && Date.now() - new Date(a.at).getTime() < 30 * 60_000)) throw new HttpError(403, "กู้คืนได้เฉพาะผู้ดูแล หรือรายการที่คุณเพิ่งลบเองภายใน 30 นาที");
   const snap = a?.before?.snapshot;
   if (!a || !snap || !["row.delete", "zone.delete", "customer.delete"].includes(a.action)) throw new HttpError(404, "รายการนี้กู้คืนไม่ได้ (ไม่มีข้อมูลเดิมเก็บไว้)");
   let note = "";
