@@ -40,4 +40,19 @@ describe("the owner's vehicles: on the map, no rent, nothing to chase", () => {
     await admin.patch(`/customers/${owner.id}`, { isOwner: true });
     expect((await data()).years.find((x: any) => x.year === y).rows.filter((r: any) => r.customerId === owner.id).every((r: any) => r.isOwner)).toBe(true);
   });
+
+  it("ending a customer's rent takes their car off the map and frees the slot; coming back needs the slot free", async () => {
+    const made = (await admin.post("/customers", { name: "ลูกค้าเลิกเช่า", year: y, vehicles: [{ plate: "END 1", slotId: "W03", vehicleType: "suv", monthlyFee: 120000 }] })).json;
+    const onMap = async () => {
+      const d = await data();
+      return d.years.find((x: any) => x.year === y).rows.filter((r: any) => r.isActive && r.kind === "normal" && r.slotId === "W03");
+    };
+    expect(await onMap()).toHaveLength(1);
+    expect((await admin.patch(`/customers/${made.customer.id}`, { isActive: false })).status).toBe(200);
+    expect(await onMap()).toHaveLength(0);
+    // the slot is free for someone else straight away
+    expect((await admin.post("/ledger/rows", { year: y, ownerName: "คนใหม่", plate: "NEW 1", slotId: "W03" })).status).toBe(200);
+    // the earlier customer can no longer silently take it back
+    expect((await admin.patch(`/customers/${made.customer.id}`, { isActive: true })).status).toBe(409);
+  });
 });

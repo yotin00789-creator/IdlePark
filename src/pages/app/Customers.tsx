@@ -37,9 +37,9 @@ export default function Customers() {
   if (!data) return null;
   return (
     <>
-      <PageMeta title="ลูกค้าและรถ | IdlePark" description="เพิ่มและแก้ไขข้อมูลผู้เช่าและรถ" />
+      <PageMeta title="ลูกค้า | IdlePark" description="เพิ่มและแก้ไขข้อมูลผู้เช่าและรถ" />
       <PageHeader
-        title="ลูกค้าและรถ"
+        title="ลูกค้า"
         description={`แสดง ${rows.length} จาก ${data.customers.length} ราย · ข้อมูลรถเป็นของปี ${year}`}
         actions={editable && <Button icon={<PlusGlyph />} onClick={() => setForm({ customer: null })}>เพิ่มลูกค้า</Button>}
       />

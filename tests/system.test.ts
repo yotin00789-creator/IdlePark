@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
-import { bangkokClock, formatThaiDate, formatThaiDateTime, formatThaiTime, formatIsoThai, parseClock } from "../shared/thai.js";
+import { bangkokClock, bangkokToday, formatThaiDate, formatThaiDateTime, formatThaiTime, formatIsoThai, parseClock } from "../shared/thai.js";
 import { lastScheduledSlot, sanitizeBackup } from "../server/backup.js";
 import { sent } from "../server/mail.js";
 import { Client, PASSWORD, acceptInvite, freshApp, setupAdmin } from "./helpers.js";
@@ -67,7 +67,8 @@ describe("backup, report, database status, cron, 2FA QR", () => {
   it("the report covers a date range and rejects bad ranges", async () => {
     const day = await admin.get(`/report?mode=days&from=2020-01-01&to=2099-12-31`);
     expect(day.status).toBe(400); // more than a year
-    const today = new Date().toISOString().slice(0, 10);
+    const t = bangkokToday(); // the report counts days in Thai time (a UTC date is wrong between midnight and 07:00)
+    const today = `${t.year - 543}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}`;
     const ok = await admin.get(`/report?mode=days&from=${today}&to=${today}`);
     expect(ok.status).toBe(200);
     expect(ok.text).toContain("รายงานการรับเงินรายวัน");

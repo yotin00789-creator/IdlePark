@@ -29,7 +29,7 @@ export const MAIN_NAV: NavItem[] = [
   { to: "/ledger", label: "สมุดรายรับ", icon: LedgerGlyph },
   { to: "/summary", label: "สรุปรายปี", icon: ChartGlyph },
   { to: "/reports", label: "รายงาน PDF", icon: FileTextGlyph },
-  { to: "/customers", label: "ลูกค้าและรถ", icon: CarSideGlyph },
+  { to: "/customers", label: "ลูกค้า", icon: CarSideGlyph },
   { to: "/zones", label: "โซนที่จอด", icon: MapPinGlyph },
   { to: "/savings", label: "เงินเก็บพ่อ", icon: WalletGlyph },
   { to: "/accounts", label: "บัญชีรับเงิน", icon: BankGlyph },

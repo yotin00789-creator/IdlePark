@@ -512,13 +512,20 @@ route("PATCH", "/customers/:id", EDIT as any, async (c) => {
     if (n.name !== cur.name) await q.query("update ledger_rows set owner_name = $2 where customer_id = $1", [id, n.name]);
     if (n.is_active !== cur.is_active) {
       const [{ cy }] = await q.query<{ cy: number }>("select $1::int as cy", [bangkokToday().year]);
-      await q.query("update ledger_rows set is_active = $2 where customer_id = $1 and year = $3", [id, n.is_active, cy]);
+      if (n.is_active) {
+        // coming back: every slot they held must still be free, otherwise the car would sit on top of someone else's
+        for (const r of await q.query("select * from ledger_rows where customer_id = $1 and year >= $2 and not is_active and kind = 'normal' and slot_id is not null", [id, cy])) {
+          await resolvePlacement(q, { year: r.year, rowId: r.id, vehicleType: r.vehicle_type, zoneId: r.zone_id, slotId: r.slot_id, bay: r.bay, startMonth: r.start_month, endMonth: r.end_month, counts: true, cur: r as any });
+        }
+      }
+      // this year and later: ended rent frees the slot (the car leaves the 3D map); earlier years stay as history
+      await q.query("update ledger_rows set is_active = $2 where customer_id = $1 and year >= $3", [id, n.is_active, cy]);
     }
     await audit(c, {
       action: "customer.update",
       entity: "customer",
       entityId: id,
-      summary: `แก้ไขลูกค้า ${n.name}${n.name !== cur.name ? ` (เดิม ${cur.name})` : ""}${n.is_owner !== cur.is_owner ? (n.is_owner ? " · ตั้งเป็นเจ้าของ (ไม่คิดเงิน)" : " · ยกเลิกสถานะเจ้าของ") : ""}`,
+      summary: `แก้ไขลูกค้า ${n.name}${n.name !== cur.name ? ` (เดิม ${cur.name})` : ""}${n.is_active !== cur.is_active ? (n.is_active ? " · กลับมาเช่า" : " · เลิกเช่า (นำรถออกจากผังที่จอด)") : ""}${n.is_owner !== cur.is_owner ? (n.is_owner ? " · ตั้งเป็นเจ้าของ (ไม่คิดเงิน)" : " · ยกเลิกสถานะเจ้าของ") : ""}`,
       before: { name: cur.name, phone: cur.phone, email: cur.email, note: cur.note, isActive: cur.is_active },
       after: { name: n.name, phone: n.phone, email: n.email, note: n.note, isActive: n.is_active },
     }, q);

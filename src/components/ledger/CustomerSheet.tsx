@@ -83,7 +83,8 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
         });
       }
       await dataStore.load(true);
-      toast.success(c ? "บันทึกแล้ว" : "เพิ่มลูกค้าแล้ว");
+      if (c && c.isActive && !active) toast.success("เลิกเช่าแล้ว", `รถของ ${c.name} ออกจากผังที่จอด 3 มิติแล้ว ช่องว่างให้คนอื่น`);
+      else toast.success(c ? "บันทึกแล้ว" : "เพิ่มลูกค้าแล้ว");
       onClose();
     } catch (e) {
       setError(errorMessage(e));
@@ -104,6 +105,18 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
       setError(errorMessage(e));
     }
     setSyncing(false);
+  };
+
+  // end (or resume) the rent of one vehicle: an ended one leaves the 3D map and frees its slot
+  const toggleRow = async (r: LedgerRow) => {
+    try {
+      await api.patch(`/ledger/rows/${r.id}`, { isActive: !r.isActive });
+      await dataStore.load(true);
+      if (r.isActive) toast.success("เลิกเช่าแล้ว", `${r.plate || "รถ"} ออกจากผังที่จอด 3 มิติแล้ว ช่องว่างให้คนอื่น`);
+      else toast.success("กลับมาเช่าแล้ว");
+    } catch (e) {
+      setError(errorMessage(e));
+    }
   };
 
   const remove = async () => {
@@ -139,7 +152,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
           </div>
           <TextAreaField label="หมายเหตุ" value={note} onChange={(e) => setNote(e.target.value)} disabled={!editable} />
           <Toggle checked={owner} onChange={setOwner} disabled={!editable} label="เจ้าของ (ไม่คิดเงิน)" hint="รถและคลังของเจ้าของแสดงบนผังได้ แต่ไม่คิดค่าเช่า ไม่แจ้งค้างชำระ และไม่นับในยอด" />
-          {c && <Toggle checked={active} onChange={setActive} disabled={!editable} label="ยังเช่าอยู่" hint={`ปิดเมื่อเลิกเช่า: รถของลูกค้าในปี ${year} จะไม่ถูกแจ้งเตือนค้างชำระ`} />}
+          {c && <Toggle checked={active} onChange={setActive} disabled={!editable} label="ยังเช่าอยู่" hint={`ปิดเมื่อเลิกเช่า: รถทุกคันออกจากผังที่จอด 3 มิติ ช่องว่างให้คนอื่น และไม่ถูกแจ้งเตือนค้างชำระ (ปี ${year} เป็นต้นไป)`} />}
 
           {c ? (
             <div>
@@ -161,7 +174,12 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
                           {r.slotId ? slotLabel(r.slotId) : "ยังไม่ระบุช่อง"} · {r.isOwner ? "เจ้าของ ไม่คิดเงิน" : `${formatBaht(currentFee(r, data.today))} บาท/${isYearly(r) ? "ปี" : "เดือน"}`} · นัดชำระวันที่ {r.dueDay ?? data.settings.reminders.dueDay}{r.dueDay == null ? " (เริ่มต้น)" : ""}{!r.isActive && " · เลิกเช่า"}
                         </span>
                       </span>
-                      {editable && <button onClick={() => setRowEdit({ row: r })} className="shrink-0 text-theme-sm text-link">แก้ไข</button>}
+                      {editable && (
+                        <span className="flex shrink-0 items-center gap-3">
+                          <button onClick={() => toggleRow(r)} className="text-theme-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">{r.isActive ? "เลิกเช่า" : "กลับมาเช่า"}</button>
+                          <button onClick={() => setRowEdit({ row: r })} className="text-theme-sm text-link">แก้ไข</button>
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
