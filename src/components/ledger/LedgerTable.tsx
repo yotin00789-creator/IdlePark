@@ -4,7 +4,8 @@ import FormulaPopover from "@/components/app/FormulaPopover";
 import PlateChip from "@/components/app/PlateChip";
 import { explainMonth, explainTotal } from "@/lib/formulas";
 import { monthShort, parseBaht } from "@/lib/format";
-import { confirmItemChanges, savePayments, saveItems, type ItemChange, type PaymentChange } from "@/lib/dataStore";
+import { confirmItemChanges, savePayments, saveItems, useData, type ItemChange, type PaymentChange } from "@/lib/dataStore";
+import { modeFields, payMode } from "@/lib/payMode";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
 import { cellStatus, feeFor, rowYearTotal, isPrepaid } from "../../../shared/calc";
@@ -20,6 +21,28 @@ interface LedgerTableProps {
   onEditRow: (row: LedgerRow) => void;
 }
 
+// A tiny "โอน" tag on cells paid by transfer; on a cash cell the "สด" tag shows on hover. Click flips it.
+function MethodChip({ method, bank, editable, onFlip }: { method: "cash" | "transfer" | null; bank?: string; editable: boolean; onFlip: () => void }) {
+  const transfer = method === "transfer";
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      disabled={!editable}
+      onClick={onFlip}
+      title={transfer ? `โอนเข้าบัญชี${bank ? ` ${bank}` : ""} (กดเพื่อเปลี่ยนเป็นเงินสด)` : "เงินสด (กดเพื่อเปลี่ยนเป็นโอนเข้าบัญชี)"}
+      aria-label={transfer ? "ชำระด้วยการโอน" : "ชำระด้วยเงินสด"}
+      className={cn(
+        "absolute top-0.5 start-0.5 z-[1] rounded px-1 text-[10px] leading-4 font-medium",
+        transfer ? "bg-gold-100 text-gray-800 dark:bg-gold-500/20 dark:text-gold-300" : "bg-gray-100 text-gray-500 opacity-0 group-hover/cell:opacity-100 focus-visible:opacity-100 dark:bg-white/10 dark:text-gray-400",
+        !editable && "pointer-events-none",
+      )}
+    >
+      {transfer ? "โอน" : "สด"}
+    </button>
+  );
+}
+
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 const ITEMS: { kind: ItemKind; label: string }[] = [
   { kind: "to_father", label: "ให้พ่อ" },
@@ -32,6 +55,15 @@ const sticky1 = "sticky start-0 z-10 w-38 min-w-38 max-w-38";
 const sticky2 = "sticky start-38 z-10 w-28 min-w-28 max-w-28";
 
 export default function LedgerTable({ year, calc, today, rows, editable, onEditRow }: LedgerTableProps) {
+  const { data } = useData();
+  const accounts = data?.accounts ?? [];
+  // money typed into an empty cell is recorded the way the toolbar says (cash / transfer); an existing cell keeps its own
+  const fieldsFor = (row: LedgerRow, month: number, v: number | null) => (v != null && v > 0 && !((row.payments[month - 1] ?? 0) > 0) ? modeFields(accounts) : {});
+  const flip = (row: LedgerRow, month: number) => {
+    const wasTransfer = row.payMethods[month - 1] === "transfer";
+    const accountId = wasTransfer ? null : (accounts.find((a) => a.id === payMode.get().accountId)?.id ?? accounts[0]?.id ?? null);
+    void savePayments([{ rowId: row.id, month, amount: row.payments[month - 1], method: wasTransfer ? "cash" : "transfer", accountId }]);
+  };
   const isFuture = (m: number) => year.year > today.year || (year.year === today.year && m > today.month);
   const normal = rows.filter((r) => r.kind !== "excluded");
   const excluded = rows.filter((r) => r.kind === "excluded");
@@ -47,7 +79,7 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
         if (!row || month > 12) return;
         const v = parseBaht(cell);
         if (v === "invalid") return void skipped++;
-        if (v !== row.payments[month - 1]) changes.push({ rowId: row.id, month, amount: v });
+        if (v !== row.payments[month - 1]) changes.push({ rowId: row.id, month, amount: v, ...fieldsFor(row, month, v) });
       }),
     );
     if (skipped) toast.error(`ข้าม ${skipped} ช่องที่ไม่ใช่ตัวเลข`);
@@ -98,7 +130,8 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
           const prepaid = isPrepaid(row, year.year, m) && amount == null;
           const status = cellStatus(amount, feeFor(row, m), isFuture(m));
           return (
-            <td key={m} className={cellBase}>
+            <td key={m} className={cn(cellBase, "group/cell relative")}>
+              {(amount ?? 0) > 0 && <MethodChip method={row.payMethods[m - 1]} bank={accounts.find((a) => a.id === row.payAccounts[m - 1])?.bank} editable={editable} onFlip={() => flip(row, m)} />}
               <EditableCell
                 grid="ledger"
                 r={r}
@@ -108,7 +141,7 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
                 label={`${row.ownerName} ${row.plate} เดือน ${m}`}
                 tone={dim ? "text-gray-500 dark:text-gray-400" : prepaid ? "text-link" : CELL_TONE[status]}
                 placeholder={prepaid ? "จ่ายล่วงหน้า" : "—"}
-                onCommit={(v) => void savePayments([{ rowId: row.id, month: m, amount: v }])}
+                onCommit={(v) => void savePayments([{ rowId: row.id, month: m, amount: v, ...fieldsFor(row, m, v) }])}
                 onPasteMatrix={pasteRows}
               />
             </td>

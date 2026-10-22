@@ -1,5 +1,6 @@
 import Baht from "@/components/app/Baht";
 import Button from "@/components/app/Button";
+import PayMethodPicker from "@/components/app/PayMethodPicker";
 import PageHeader from "@/components/app/PageHeader";
 import PageMeta from "@/components/common/PageMeta";
 import LedgerCards from "@/components/ledger/LedgerCards";
@@ -10,6 +11,7 @@ import { DownloadGlyph, PlusGlyph, SearchGlyph } from "@/icons";
 import { api, errorMessage } from "@/lib/api";
 import { dataStore, useCalc } from "@/lib/dataStore";
 import { monthName } from "@/lib/format";
+import { payMode, usePayMode } from "@/lib/payMode";
 import { canEdit, useAuth } from "@/lib/session";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
@@ -22,6 +24,7 @@ const LEGEND: CellStatus[] = ["full", "partial", "zero", "empty"];
 
 export default function Ledger() {
   const model = useCalc();
+  const mode = usePayMode();
   const { user } = useAuth();
   const { year: yearParam } = useParams();
   const [params, setParams] = useSearchParams();
@@ -152,6 +155,14 @@ export default function Ledger() {
         <Stat label="รวม(หักแล้ว) ทั้งปี" value={<Baht value={calc.totals.net} signColor />} />
         <Stat label="ยอดคงเหลือสะสม" value={<Baht value={calc.cumulative} signColor />} />
       </dl>
+
+      {editable && (
+        <div className="mb-3 hidden flex-wrap items-center gap-x-3 gap-y-2 md:flex">
+          <span className="text-theme-sm font-medium text-gray-700 dark:text-gray-300">ยอดที่พิมพ์ใหม่รับเป็น</span>
+          <PayMethodPicker compact value={mode} onChange={payMode.set} accounts={model?.data.accounts ?? []} />
+          <span className="text-theme-xs text-gray-500 dark:text-gray-400">ช่องที่มีเงินแล้วใช้วิธีเดิม · กดป้าย “สด/โอน” ที่มุมช่องเพื่อเปลี่ยน</span>
+        </div>
+      )}
 
       <ul className="mb-3 hidden flex-wrap items-center gap-x-4 gap-y-1 text-theme-xs text-gray-500 md:flex dark:text-gray-400" aria-label="คำอธิบายสี">
         {LEGEND.map((s) => (

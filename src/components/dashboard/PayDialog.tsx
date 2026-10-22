@@ -1,7 +1,9 @@
 import Button from "@/components/app/Button";
 import { TextField } from "@/components/app/Field";
 import Sheet from "@/components/app/Sheet";
-import { savePayments } from "@/lib/dataStore";
+import PayMethodPicker from "@/components/app/PayMethodPicker";
+import { savePayments, useData } from "@/lib/dataStore";
+import { modeFields, payMode, usePayMode } from "@/lib/payMode";
 import { formatBaht, monthName, parseBaht } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { useState } from "react";
@@ -20,13 +22,17 @@ export default function PayDialog({ target, onClose }: PayDialogProps) {
 
 function Form({ target, onClose }: { target: NonNullable<PayDialogProps["target"]>; onClose: () => void }) {
   const { row, month, paid } = target;
+  const { data } = useData();
+  const mode = usePayMode();
+  const accounts = data?.accounts ?? [];
   const [amount, setAmount] = useState(String((feeFor(row, month) - paid) / 100));
   const [error, setError] = useState<string | null>(null);
 
   const save = () => {
     const parsed = parseBaht(amount);
     if (parsed === "invalid" || parsed == null || parsed <= 0) return setError("กรอกจำนวนเงินที่ได้รับเป็นตัวเลข");
-    void savePayments([{ rowId: row.id, month, amount: paid + parsed }]);
+    const f = modeFields(accounts);
+    void savePayments([{ rowId: row.id, month, amount: paid + parsed, method: f.method, accountId: f.accountId }]);
     toast.success(`บันทึกแล้ว: ${row.ownerName} ${monthName(month)}`);
     onClose();
   };
@@ -52,6 +58,10 @@ function Form({ target, onClose }: { target: NonNullable<PayDialogProps["target"
         error={error}
         hint={paid > 0 ? `เดือนนี้จ่ายไว้แล้ว ${formatBaht(paid)} บาท จะนำมารวมให้` : `ค่าเช่า ${formatBaht(feeFor(row, month))} บาท/เดือน`}
       />
+      <div className="mt-5">
+        <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">รับเงินด้วย</span>
+        <PayMethodPicker value={mode} onChange={payMode.set} accounts={accounts} />
+      </div>
     </Sheet>
   );
 }

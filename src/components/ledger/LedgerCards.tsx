@@ -3,13 +3,14 @@ import Button from "@/components/app/Button";
 import MonthStrip from "@/components/app/MonthStrip";
 import PlateChip from "@/components/app/PlateChip";
 import Sheet from "@/components/app/Sheet";
-import { savePayments, type PaymentChange } from "@/lib/dataStore";
+import { savePayments, useData, type PaymentChange } from "@/lib/dataStore";
+import { modeFields, payMode } from "@/lib/payMode";
 import { formatBaht, monthName, parseBaht } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
 import { useState } from "react";
 import { cellStatus, currentFee, feeFor, rowYearTotal } from "../../../shared/calc";
-import type { LedgerRow } from "../../../shared/types";
+import type { LedgerRow, PayMethod } from "../../../shared/types";
 import { CELL_TONE } from "./status";
 
 interface LedgerCardsProps {
@@ -66,7 +67,10 @@ interface MonthSheetProps {
 }
 
 function MonthSheet({ row, year, today, editable, onClose, onEditRow }: MonthSheetProps) {
+  const { data } = useData();
+  const accounts = data?.accounts ?? [];
   const [draft, setDraft] = useState<string[]>(() => (row ? row.payments.map((p) => (p == null ? "" : String(p / 100))) : []));
+  const [methods, setMethods] = useState<PayMethod[]>(() => (row ? row.payMethods.map((m) => m ?? payMode.get().method) : []));
   if (!row) return null;
 
   const save = () => {
@@ -74,7 +78,12 @@ function MonthSheet({ row, year, today, editable, onClose, onEditRow }: MonthShe
     for (let m = 1; m <= 12; m++) {
       const parsed = parseBaht(draft[m - 1] ?? "");
       if (parsed === "invalid") return toast.error(`${monthName(m)}: กรอกเป็นตัวเลข`);
-      if (parsed !== row.payments[m - 1]) changes.push({ rowId: row.id, month: m, amount: parsed });
+      const methodChanged = parsed != null && parsed > 0 && (methods[m - 1] ?? "cash") !== (row.payMethods[m - 1] ?? "cash");
+      if (parsed !== row.payments[m - 1] || methodChanged) {
+        const method = parsed != null && parsed > 0 ? (methods[m - 1] ?? modeFields(accounts).method) : undefined;
+        const accountId = method === "transfer" ? (row.payAccounts[m - 1] ?? modeFields(accounts).accountId ?? accounts[0]?.id ?? null) : null;
+        changes.push({ rowId: row.id, month: m, amount: parsed, ...(method ? { method, accountId } : {}) });
+      }
     }
     if (changes.length) {
       void savePayments(changes);
@@ -117,6 +126,22 @@ function MonthSheet({ row, year, today, editable, onClose, onEditRow }: MonthShe
                 placeholder="—"
                 className={cn("app-input num text-end", CELL_TONE[status])}
               />
+              {(parsed !== "invalid" && (parsed ?? 0) > 0) && (
+                <span className="mt-1 flex justify-end gap-1" role="group" aria-label={`วิธีรับเงิน ${monthName(m)}`}>
+                  {(["cash", "transfer"] as const).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      disabled={!editable}
+                      aria-pressed={(methods[i] ?? "cash") === k}
+                      onClick={() => setMethods((ms) => ms.map((v, j) => (j === i ? k : v)))}
+                      className={cn("rounded-md px-2 py-0.5 text-theme-xs font-medium", (methods[i] ?? "cash") === k ? (k === "transfer" ? "bg-gold-100 text-gray-900 dark:bg-gold-500/20 dark:text-gold-300" : "bg-gray-200 text-gray-800 dark:bg-white/15 dark:text-gray-200") : "text-gray-500 dark:text-gray-400")}
+                    >
+                      {k === "cash" ? "สด" : "โอน"}
+                    </button>
+                  ))}
+                </span>
+              )}
             </label>
           );
         })}

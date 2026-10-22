@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { api, onUnauthorized } from "./api";
+import { toast } from "./toast";
 
 export type Role = "admin" | "editor" | "viewer";
 export interface SessionUser {
@@ -45,17 +46,22 @@ export const auth = {
   setUser: (user: SessionUser) => set({ status: "authed", user }),
   setMfaPending: () => set({ status: "mfa", user: null }),
   async signOut() {
+    const wasIn = state.status === "authed";
     try {
       await api.post("/auth/logout");
     } catch {
       /* already signed out */
     }
     set({ status: "anon", user: null });
+    if (wasIn) toast.success("ออกจากระบบแล้ว", "ขอบคุณที่ใช้ IdlePark");
   },
 };
 
 onUnauthorized(() => {
-  if (state.status === "authed") set({ status: "anon", user: null });
+  if (state.status === "authed") {
+    set({ status: "anon", user: null });
+    toast.info("หมดเวลาการใช้งาน", "กรุณาเข้าสู่ระบบอีกครั้ง");
+  }
 });
 
 export const useAuth = () => useSyncExternalStore(auth.subscribe, auth.get);

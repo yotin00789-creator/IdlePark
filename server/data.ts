@@ -1,12 +1,14 @@
 // Loads the whole ledger as plain data. It is small (a few hundred rows), so the
 // web app receives all years at once and recalculates everything locally and instantly.
 import type { Queryable } from "./db.js";
-import type { CalcOverride, ItemKind, LedgerRow, Money, SavingsData, YearData } from "../shared/types.js";
+import type { CalcOverride, ItemKind, LedgerRow, Money, PayMethod, SavingsData, YearData } from "../shared/types.js";
 import { ITEM_KINDS } from "../shared/types.js";
 
 const blank = (): Money[] => Array.from({ length: 12 }, () => null);
+const blankMethods = (): (PayMethod | null)[] => Array.from({ length: 12 }, () => null);
+const blankAccounts = (): (number | null)[] => Array.from({ length: 12 }, () => null);
 
-export const rowFromDb = (r: Record<string, any>, payments: Money[] = blank()): LedgerRow => ({
+export const rowFromDb = (r: Record<string, any>, payments: Money[] = blank(), methods: (PayMethod | null)[] = blankMethods(), accounts: (number | null)[] = blankAccounts()): LedgerRow => ({
   id: r.id,
   year: r.year,
   sortOrder: r.sort_order,
@@ -33,20 +35,30 @@ export const rowFromDb = (r: Record<string, any>, payments: Money[] = blank()): 
   needsReview: r.needs_review,
   isActive: r.is_active,
   payments,
+  payMethods: methods,
+  payAccounts: accounts,
 });
 
 export async function loadYears(q: Queryable, extraYears: number[] = []): Promise<YearData[]> {
   const [rows, pays, items, overrides] = await Promise.all([
     q.query("select * from ledger_rows order by year, sort_order, id"),
-    q.query("select row_id, month, amount from payments"),
+    q.query("select row_id, month, amount, method, account_id from payments"),
     q.query("select year, month, kind, amount from year_items"),
     q.query("select * from calc_overrides order by year, month, field"),
   ]);
   const byRow = new Map<number, Money[]>();
+  const methodsByRow = new Map<number, (PayMethod | null)[]>();
+  const accountsByRow = new Map<number, (number | null)[]>();
   for (const p of pays) {
     const arr = byRow.get(p.row_id) ?? blank();
     arr[p.month - 1] = p.amount;
     byRow.set(p.row_id, arr);
+    const ms = methodsByRow.get(p.row_id) ?? blankMethods();
+    if (p.amount != null) ms[p.month - 1] = p.method;
+    methodsByRow.set(p.row_id, ms);
+    const as = accountsByRow.get(p.row_id) ?? blankAccounts();
+    if (p.amount != null) as[p.month - 1] = p.account_id;
+    accountsByRow.set(p.row_id, as);
   }
   const years = new Map<number, YearData>();
   const ensure = (year: number) => {
@@ -62,7 +74,7 @@ export async function loadYears(q: Queryable, extraYears: number[] = []): Promis
     }
     return y;
   };
-  for (const r of rows) ensure(r.year).rows.push(rowFromDb(r, byRow.get(r.id) ?? blank()));
+  for (const r of rows) ensure(r.year).rows.push(rowFromDb(r, byRow.get(r.id) ?? blank(), methodsByRow.get(r.id), accountsByRow.get(r.id)));
   for (const i of items) {
     if (ITEM_KINDS.includes(i.kind as ItemKind)) ensure(i.year).items[i.kind as ItemKind][i.month - 1] = i.amount;
   }

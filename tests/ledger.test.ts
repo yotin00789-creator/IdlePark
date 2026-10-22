@@ -81,8 +81,8 @@ describe.skipIf(!existsSync(XLSX))("ledger API on the real workbook", () => {
     expect(log.userEmail).toBe("owner@example.com");
     expect(log.summary).toContain("นา");
     expect(log.summary).toContain("ตุลาคม 2569");
-    expect(log.before).toEqual({ amount: null });
-    expect(log.after).toEqual({ amount: 120000 });
+    expect(log.before).toEqual({ amount: null, method: null, accountId: null });
+    expect(log.after).toEqual({ amount: 120000, method: "cash", accountId: null });
     expect(log.method).toBe("PUT");
     expect(log.path).toBe("/api/ledger/payments");
   });

@@ -149,6 +149,26 @@ export async function monthsReport(db: Db, r: Extract<ReportRange, { mode: "mont
   const have = new Set(lines.map((l) => l.year));
   const sum = (k: keyof MonthLine) => lines.reduce((n, l) => n + (l[k] as number), 0);
   const end = lines.at(-1);
+  // how the rent arrived in these months: cash, or a transfer (per bank account)
+  const bank = new Map((await db.query("select id, bank, label from bank_accounts")).map((a) => [a.id as number, `${a.bank} · ${a.label}`]));
+  let cash = 0;
+  let transfer = 0;
+  const perAccount = new Map<string, number>();
+  for (const y of years) {
+    for (const row of y.rows) {
+      if (row.kind === "excluded") continue;
+      row.payments.forEach((v, i) => {
+        const at = idx(y.year, i + 1);
+        if (v == null || v <= 0 || at < idx(r.from.year, r.from.month) || at > idx(r.to.year, r.to.month)) return;
+        if (row.payMethods[i] === "transfer") {
+          transfer += v;
+          const name = row.payAccounts[i] != null ? (bank.get(row.payAccounts[i]!) ?? "บัญชีที่ถูกลบ") : "ไม่ระบุบัญชี";
+          perAccount.set(name, (perAccount.get(name) ?? 0) + v);
+        } else cash += v;
+      });
+    }
+  }
+  const methodLine = `<p class="note">ช่องทางรับค่าเช่าในช่วงนี้: เงินสด <b>${money(cash)}</b> บาท · โอนเข้าบัญชี <b>${money(transfer)}</b> บาท${perAccount.size ? ` (${[...perAccount].map(([n, v]) => `${esc(n)} ${money(v)}`).join(", ")})` : ""}</p>`;
   const period = `ช่วงเดือน <b>${esc(monthLabel(r.from.year, r.from.month))}</b> ถึง <b>${esc(monthLabel(r.to.year, r.to.month))}</b> (${lines.length} เดือน)`;
 
   let pages = "";
@@ -179,6 +199,7 @@ export async function monthsReport(db: Db, r: Extract<ReportRange, { mode: "mont
     <div class="kpi main"><small>รวม(หักแล้ว) ในช่วงนี้</small><strong>${money(sum("net"))}</strong></div>
   </div>
   <p class="note">ยอดสะสมคงเหลือ ณ สิ้น${end ? esc(monthLabel(end.year, end.month)) : ""}: <b>${end ? money(end.cumulative) : "—"}</b> บาท</p>
+  ${methodLine}
   <h2>สรุปรายเดือน (บาท)</h2>
   <table><thead><tr><th class="l">เดือน</th><th>รายรับ</th><th>ให้พ่อ</th><th>จ่ายป้า</th><th>ค่าใช้จ่ายรวม</th><th>เก็บเงิน</th><th>รวม(หักแล้ว)</th><th>สะสม</th></tr></thead>
   <tbody>${monthRows}<tr class="total"><td class="l">รวมทั้งช่วง</td><td>${money(sum("income"))}</td><td>${money(sum("toFather"))}</td><td>${money(sum("payAunt"))}</td><td>${money(sum("totalExpense"))}</td><td>${money(sum("collect"))}</td><td class="${cls(sum("net"))}">${money(sum("net"))}</td><td class="${cls(end?.cumulative ?? 0)}">${end ? money(end.cumulative) : "—"}</td></tr></tbody></table>
@@ -220,11 +241,12 @@ export async function monthsReport(db: Db, r: Extract<ReportRange, { mode: "mont
 
 export async function daysReport(db: Db, r: Extract<ReportRange, { mode: "days" }>, meta: Meta): Promise<string> {
   const rows = await db.query(
-    `select p.amount, p.month, p.updated_at, r.year, r.owner_name, r.plate, r.slot_id, r.monthly_fee, r.vehicle_type,
+    `select p.amount, p.month, p.method, p.updated_at, b.bank as bank, b.label as bank_label, r.year, r.owner_name, r.plate, r.slot_id, r.monthly_fee, r.vehicle_type,
             coalesce(nullif(trim(u.first_name || ' ' || u.last_name), ''), '—') as by
        from payments p
        join ledger_rows r on r.id = p.row_id
        left join users u on u.id = p.updated_by
+       left join bank_accounts b on b.id = p.account_id
       where p.amount is not null and p.amount > 0
         and p.updated_at >= $1::timestamptz and p.updated_at < ($2::timestamptz + interval '1 day')
       order by p.updated_at, r.owner_name`,
@@ -237,19 +259,21 @@ export async function daysReport(db: Db, r: Extract<ReportRange, { mode: "days" 
     byDay.set(key, [...(byDay.get(key) ?? []), x]);
   }
   const total = rows.reduce((n, x) => n + (x.amount as number), 0);
+  const cashTotal = rows.filter((x) => x.method !== "transfer").reduce((n, x) => n + (x.amount as number), 0);
+  const how = (x: (typeof rows)[number]) => (x.method === "transfer" ? `โอน${x.bank ? ` ${x.bank}` : ""}` : "เงินสด");
   const period = `ช่วงวันที่ <b>${esc(formatIsoThai(r.from))}</b> ถึง <b>${esc(formatIsoThai(r.to))}</b> · ${byDay.size} วันที่มีรายการ`;
   const body = [...byDay.entries()]
     .map(([day, list]) => {
       const sub = list.reduce((n, x) => n + (x.amount as number), 0);
-      return `<tr class="sub"><td class="l" colspan="5">${esc(formatIsoThai(day))} · ${list.length} รายการ</td><td>${money(sub)}</td></tr>${list
-        .map((x) => `<tr><td class="l">${esc(formatThaiTime(x.updated_at))}</td><td class="l">${esc(x.owner_name)}</td><td class="l">${esc(x.plate || "—")}${x.slot_id ? ` · ${esc(slotLabel(x.slot_id))}` : ""}</td><td class="l">${esc(THAI_MONTHS[(x.month as number) - 1])} ${x.year}</td><td class="l">${esc(x.by)}</td><td>${money(x.amount as number)}</td></tr>`)
+      return `<tr class="sub"><td class="l" colspan="6">${esc(formatIsoThai(day))} · ${list.length} รายการ</td><td>${money(sub)}</td></tr>${list
+        .map((x) => `<tr><td class="l">${esc(formatThaiTime(x.updated_at))}</td><td class="l">${esc(x.owner_name)}</td><td class="l">${esc(x.plate || "—")}${x.slot_id ? ` · ${esc(slotLabel(x.slot_id))}` : ""}</td><td class="l">${esc(THAI_MONTHS[(x.month as number) - 1])} ${x.year}</td><td class="l">${esc(x.by)}</td><td class="l">${esc(how(x))}</td><td>${money(x.amount as number)}</td></tr>`)
         .join("")}`;
     })
     .join("");
   const pages = `<section class="sheet">${head(meta, "รายงานการรับเงินรายวัน", period)}
-  <div class="kpis"><div class="kpi main"><small>รับเงินรวมในช่วงนี้ (บาท)</small><strong>${money(total)}</strong></div><div class="kpi"><small>จำนวนรายการ</small><strong>${rows.length}</strong></div><div class="kpi"><small>จำนวนวัน</small><strong>${byDay.size}</strong></div><div class="kpi"><small>เฉลี่ยต่อรายการ</small><strong>${rows.length ? money(Math.round(total / rows.length)) : "—"}</strong></div></div>
+  <div class="kpis"><div class="kpi main"><small>รับเงินรวมในช่วงนี้ (บาท)</small><strong>${money(total)}</strong></div><div class="kpi"><small>จำนวนรายการ</small><strong>${rows.length}</strong></div><div class="kpi"><small>เงินสด</small><strong>${money(cashTotal)}</strong></div><div class="kpi"><small>โอนเข้าบัญชี</small><strong>${money(total - cashTotal)}</strong></div></div>
   <h2>รายการรับเงิน (บาท)</h2>
-  ${rows.length ? `<table><thead><tr><th class="l">เวลา</th><th class="l">ผู้เช่า</th><th class="l">ทะเบียน / ช่อง</th><th class="l">งวดเดือน</th><th class="l">ผู้บันทึก</th><th>จำนวนเงิน</th></tr></thead><tbody>${body}<tr class="total"><td class="l" colspan="5">รวมทั้งหมด</td><td>${money(total)}</td></tr></tbody></table>` : `<p class="note">ไม่มีรายการรับเงินที่บันทึกในช่วงวันที่นี้</p>`}
+  ${rows.length ? `<table><thead><tr><th class="l">เวลา</th><th class="l">ผู้เช่า</th><th class="l">ทะเบียน / ช่อง</th><th class="l">งวดเดือน</th><th class="l">ผู้บันทึก</th><th class="l">รับด้วย</th><th>จำนวนเงิน</th></tr></thead><tbody>${body}<tr class="total"><td class="l" colspan="6">รวมทั้งหมด</td><td>${money(total)}</td></tr></tbody></table>` : `<p class="note">ไม่มีรายการรับเงินที่บันทึกในช่วงวันที่นี้</p>`}
   <p class="note">นับตามวัน-เวลาที่บันทึกยอดในระบบ (เวลาประเทศไทย) รายการที่นำเข้าจากไฟล์ Excel จะมีวันที่เป็นวันที่นำเข้า</p>
   <div class="sign"><div><i></i>ผู้จัดทำ<br>วันที่ ${esc(formatThaiDate(meta.now))}</div><div><i></i>ผู้ตรวจสอบ</div><div><i></i>ผู้อนุมัติ</div></div>
   ${foot(meta, "หน้า 1")}</section>`;

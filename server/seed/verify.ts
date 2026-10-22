@@ -36,6 +36,8 @@ export function toYearData(p: ParsedWorkbook["years"][number], mode: "legacy" | 
       needsReview: r.needsReview,
       isActive: true,
       payments: r.payments,
+      payMethods: Array(12).fill(null),
+      payAccounts: Array(12).fill(null),
     })),
     items: p.items,
     overrides: p.overrides.map(

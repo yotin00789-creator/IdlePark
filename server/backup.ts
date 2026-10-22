@@ -119,6 +119,19 @@ export async function buildBackup(db: Db) {
   }
   head(wv);
 
+  const wp = wb.addWorksheet("การรับเงิน");
+  wp.columns = [
+    { header: "ปี (พ.ศ.)", width: 10 }, { header: "ชื่อลูกค้า", width: 24 }, { header: "ทะเบียน", width: 14 }, { header: "เดือน", width: 12 },
+    { header: "จำนวนเงิน (บาท)", width: 16 }, { header: "รับด้วย", width: 14 }, { header: "บัญชีที่รับโอน", width: 26 }, { header: "บันทึกเมื่อ", width: 28 },
+  ];
+  const pays = await db.query(
+    `select r.year, r.owner_name, r.plate, p.month, p.amount, p.method, p.updated_at, b.bank, b.label
+       from payments p join ledger_rows r on r.id = p.row_id left join bank_accounts b on b.id = p.account_id
+      where p.amount is not null and p.amount > 0 order by r.year, p.month, r.owner_name`,
+  );
+  for (const x of pays) wp.addRow([x.year, x.owner_name, x.plate, THAI_MONTHS[x.month - 1], x.amount / 100, x.method === "transfer" ? "โอนเข้าบัญชี" : "เงินสด", x.method === "transfer" && x.bank ? `${x.bank} ${x.label}` : "", formatThaiDateTime(x.updated_at)]);
+  head(wp);
+
   const wz = wb.addWorksheet("โซนที่จอด");
   wz.columns = [{ header: "โซน", width: 22 }, { header: "ชนิด", width: 14 }, { header: "สถานะ", width: 14 }, { header: "ช่องจอด", width: 40 }, { header: "จอดมอเตอร์ไซค์ได้ (คัน)", width: 22 }, { header: "รายละเอียด", width: 30 }];
   for (const z of zones) wz.addRow([z.name, z.access === "private" ? "ส่วนตัว" : "ทั่วไป", z.is_active ? "เปิดใช้งาน" : "ปิดใช้งาน", (z.slot_ids as string[]).map(slotLabel).join(", "), z.moto_capacity || "", z.description]);

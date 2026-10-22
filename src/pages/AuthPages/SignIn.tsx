@@ -85,6 +85,7 @@ export default function SignIn({ initialPane = "login" }: { initialPane?: "login
     const user = signedIn.current;
     if (!user) return;
     auth.setUser(user);
+    toast.success("เข้าสู่ระบบสำเร็จ", `ยินดีต้อนรับ ${user.firstName || user.email}`);
     navigate(next, { replace: true });
   }, [navigate, next]);
 

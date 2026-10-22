@@ -44,7 +44,12 @@ export interface LedgerRow {
   needsReview: boolean;
   isActive: boolean;
   payments: Months<Money>;
+  payMethods: Months<PayMethod | null>; // how each month's money arrived (null = nothing recorded)
+  payAccounts: Months<number | null>; // the bank account of a transfer
 }
+
+export type PayMethod = "cash" | "transfer";
+export const PAY_METHOD_LABEL: Record<PayMethod, string> = { cash: "เงินสด", transfer: "โอนเข้าบัญชี" };
 
 export interface FeeChange {
   month: number; // 2..12: the new price applies from this month on

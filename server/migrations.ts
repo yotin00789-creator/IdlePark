@@ -279,4 +279,14 @@ alter table users add column must_change_password boolean not null default false
 -- invitations sent before this change had no password yet: they keep working through the old link
 `,
   },
+  {
+    id: 6,
+    name: "payment_method",
+    sql: `
+-- how a payment arrived: cash, or a transfer into one of the bank accounts
+alter table payments
+  add column method text not null default 'cash' check (method in ('cash','transfer')),
+  add column account_id integer references bank_accounts(id) on delete set null;
+`,
+  },
 ];

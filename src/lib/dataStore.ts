@@ -3,7 +3,7 @@
 // happens in the background and a failure rolls the change back.
 import { useMemo, useSyncExternalStore } from "react";
 import { calcAll, calcSavings } from "../../shared/calc";
-import type { ItemKind, LedgerRow, Money, SavingsData, YearCalc, YearData } from "../../shared/types";
+import type { ItemKind, LedgerRow, Money, PayMethod, SavingsData, YearCalc, YearData } from "../../shared/types";
 import type { BangkokDate } from "../../shared/thai";
 import { api, ApiError } from "./api";
 import { confirmMoney } from "./confirm";
@@ -173,6 +173,8 @@ export interface PaymentChange {
   rowId: number;
   month: number;
   amount: Money;
+  method?: PayMethod; // omitted = keep how it was paid (new money defaults to cash on the server)
+  accountId?: number | null; // for a transfer: which bank account
 }
 
 export function savePayments(changes: PaymentChange[]) {
@@ -189,8 +191,20 @@ export function savePayments(changes: PaymentChange[]) {
             const rc = mine.filter((c) => c.rowId === r.id);
             if (!rc.length) return r;
             const payments = [...r.payments];
-            for (const c of rc) payments[c.month - 1] = c.amount;
-            return { ...r, payments };
+            const payMethods = [...r.payMethods];
+            const payAccounts = [...r.payAccounts];
+            for (const c of rc) {
+              payments[c.month - 1] = c.amount;
+              if (c.amount == null) {
+                payMethods[c.month - 1] = null;
+                payAccounts[c.month - 1] = null;
+              } else {
+                const method = c.method ?? payMethods[c.month - 1] ?? "cash";
+                payMethods[c.month - 1] = method;
+                payAccounts[c.month - 1] = method === "transfer" ? (c.method ? (c.accountId ?? null) : payAccounts[c.month - 1]) : null;
+              }
+            }
+            return { ...r, payments, payMethods, payAccounts };
           }),
         };
       }),

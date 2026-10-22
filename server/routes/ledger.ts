@@ -76,28 +76,40 @@ route("PUT", "/ledger/payments", EDIT as any, async (c) => {
   const changes: any[] = Array.isArray(b.changes) ? b.changes : [];
   if (!changes.length) return { ok: true, changed: 0 };
   if (changes.length > 600) throw new HttpError(400, "แก้ไขพร้อมกันได้ไม่เกิน 600 ช่อง");
-  const parsed = changes.map((x) => ({ rowId: Number(x.rowId), month: month(x.month), amount: money(x.amount) }));
+  const parsed = changes.map((x) => {
+    if (x.method !== undefined && x.method !== "cash" && x.method !== "transfer") throw new HttpError(400, "วิธีรับเงินไม่ถูกต้อง");
+    return { rowId: Number(x.rowId), month: month(x.month), amount: money(x.amount), method: x.method as "cash" | "transfer" | undefined, accountId: x.accountId == null ? null : Number(x.accountId) };
+  });
   let changed = 0;
   await c.db.tx(async (q) => {
+    const accounts = new Map((await q.query("select id, bank, label from bank_accounts")).map((a) => [a.id as number, `${a.bank} ${a.label}`.trim()]));
+    const methodText = (m: string | null, acc: number | null) => (m == null ? "" : m === "cash" ? " (เงินสด)" : ` (โอน${acc != null && accounts.has(acc) ? ` ${accounts.get(acc)}` : ""})`);
     for (const ch of parsed) {
       const [row] = await q.query("select id, year, owner_name, plate from ledger_rows where id = $1", [ch.rowId]);
       if (!row) throw new HttpError(404, "ไม่พบแถวที่แก้ไข");
-      const [prev] = await q.query("select amount from payments where row_id = $1 and month = $2", [ch.rowId, ch.month]);
+      const [prev] = await q.query("select amount, method, account_id from payments where row_id = $1 and month = $2", [ch.rowId, ch.month]);
       const before = prev ? (prev.amount as number | null) : null;
-      if (before === ch.amount) continue;
+      // the method stays as it was unless the caller says otherwise; a transfer may name the account, cash never does
+      const method = ch.method ?? (prev?.method as string | undefined) ?? "cash";
+      let accountId: number | null = method === "transfer" ? (ch.method ? ch.accountId : (prev?.account_id ?? null)) : null;
+      if (accountId != null && !accounts.has(accountId)) throw new HttpError(400, "ไม่พบบัญชีที่เลือก");
+      if (method === "transfer" && accountId == null && accounts.size === 1) accountId = [...accounts.keys()][0];
+      const sameMethod = !prev || (prev.method === method && (prev.account_id ?? null) === accountId);
+      if (before === ch.amount && sameMethod) continue;
       await q.query(
-        `insert into payments (row_id, month, amount, updated_by) values ($1,$2,$3,$4)
-         on conflict (row_id, month) do update set amount = excluded.amount, updated_at = now(), updated_by = excluded.updated_by`,
-        [ch.rowId, ch.month, ch.amount, c.user!.id],
+        `insert into payments (row_id, month, amount, method, account_id, updated_by) values ($1,$2,$3,$4,$5,$6)
+         on conflict (row_id, month) do update set amount = excluded.amount, method = excluded.method, account_id = excluded.account_id, updated_at = now(), updated_by = excluded.updated_by`,
+        [ch.rowId, ch.month, ch.amount, method, accountId, c.user!.id],
       );
       changed++;
+      const hasMoney = ch.amount != null;
       await audit(c, {
         action: "payment.update",
         entity: "payment",
         entityId: `${ch.rowId}:${ch.month}`,
-        summary: `${row.owner_name}${row.plate ? ` (${row.plate})` : ""} ${THAI_MONTHS[ch.month - 1]} ${row.year}: ${baht(before)} → ${baht(ch.amount)}`,
-        before: { amount: before },
-        after: { amount: ch.amount },
+        summary: `${row.owner_name}${row.plate ? ` (${row.plate})` : ""} ${THAI_MONTHS[ch.month - 1]} ${row.year}: ${baht(before)}${prev && before != null ? methodText(prev.method, prev.account_id) : ""} → ${baht(ch.amount)}${hasMoney ? methodText(method, accountId) : ""}`,
+        before: { amount: before, method: prev?.method ?? null, accountId: prev?.account_id ?? null },
+        after: { amount: ch.amount, method, accountId },
       }, q);
     }
   });
@@ -281,7 +293,7 @@ route("DELETE", "/ledger/rows/:id", EDIT as any, async (c) => {
   const id = Number(c.params.id);
   const [cur] = await c.db.query("select * from ledger_rows where id = $1", [id]);
   if (!cur) throw new HttpError(404, "ไม่พบแถว");
-  const pays = await c.db.query("select month, amount, updated_at, updated_by from payments where row_id = $1 order by month", [id]);
+  const pays = await c.db.query("select month, amount, method, account_id, updated_at, updated_by from payments where row_id = $1 order by month", [id]);
   await c.db.tx(async (q) => {
     await q.query("delete from ledger_rows where id = $1", [id]);
     // the whole row and its payments go into the audit entry, so “restore” can bring it back exactly
@@ -609,7 +621,7 @@ route("POST", "/audit/:id/restore", ADMIN as any, async (c) => {
           place.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, place.bay, JSON.stringify(r.fee_changes ?? [])],
       );
       for (const p of snap.payments ?? []) {
-        await q.query("insert into payments (row_id, month, amount, updated_at, updated_by) values ($1,$2,$3,$4, (select id from users where id = $5))", [r.id, p.month, p.amount, p.updated_at, p.updated_by]);
+        await q.query("insert into payments (row_id, month, amount, method, account_id, updated_at, updated_by) values ($1,$2,$3,$4, (select id from bank_accounts where id = $5), $6, (select id from users where id = $7))", [r.id, p.month, p.amount, p.method ?? "cash", p.account_id ?? null, p.updated_at, p.updated_by]);
       }
       summary = `กู้คืนแถว ${r.owner_name}${r.plate ? ` (${r.plate})` : ""} ปี ${r.year} พร้อมยอดชำระ ${(snap.payments ?? []).length} เดือน`;
     }
