@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import type { LedgerRow } from "../../../shared/types";
 import type { SlotDef } from "./LotScene";
 
-const DOT = { paid: "bg-success-500", pending: "bg-warning-500", late: "bg-error-500" } as const;
+const DOT = { paid: "bg-success-500", pending: "bg-warning-500", late: "bg-error-500", owner: "bg-blue-600" } as const;
 
 interface CarListProps {
   slots: SlotDef[];

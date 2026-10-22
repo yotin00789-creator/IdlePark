@@ -43,6 +43,7 @@ const TONE_STYLE = {
   paid: { box: "bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-500", Icon: CheckGlyph },
   pending: { box: "bg-warning-50 text-warning-800 dark:bg-warning-500/10 dark:text-warning-400", Icon: ClockGlyph },
   late: { box: "bg-error-50 text-error-700 dark:bg-error-500/10 dark:text-error-400", Icon: AlertGlyph },
+  owner: { box: "bg-blue-50 text-blue-800 dark:bg-blue-500/10 dark:text-blue-300", Icon: UserGlyph },
 } as const;
 
 export default function CarCard(p: CarCardProps) {
@@ -197,7 +198,9 @@ function StatusBlock({ car, dueDay, day, month, year }: { car: LotCar; dueDay: n
       <s.Icon className="mt-0.5 size-[18px] shrink-0" />
       <div className="min-w-0 text-theme-sm">
         <p className="font-semibold">{toneLabel[car.tone]}{car.tone === "late" && car.unpaid.length > 1 ? ` ${car.unpaid.length} เดือน` : ""}</p>
-        {car.tone === "paid" ? (
+        {car.tone === "owner" ? (
+          <p>รถของเจ้าของ ไม่คิดค่าเช่า ไม่แจ้งค้างชำระ และไม่นับในยอด</p>
+        ) : car.tone === "paid" ? (
           <p>
             เดือน{monthName(month)} {year}
             {paidNow != null && paidNow > 0 ? ` · รับแล้ว ${formatBaht(paidNow)} บาท` : " · จ่ายล่วงหน้าแล้ว"}

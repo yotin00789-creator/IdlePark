@@ -150,7 +150,7 @@ export interface Unpaid {
 
 /** A yearly row (the storage shed by default) is paid once a year, in the month the tenancy starts; the rest pay every month. */
 export const isYearly = (row: { slotId?: string | null; billing?: string }) => (row.billing ? row.billing === "yearly" : isStorageSlot(row.slotId));
-type PricedRow = Pick<LedgerRow, "monthlyFee" | "feeChanges"> & Partial<Pick<LedgerRow, "slotId" | "startMonth" | "billing">>;
+type PricedRow = Pick<LedgerRow, "monthlyFee" | "feeChanges"> & Partial<Pick<LedgerRow, "slotId" | "startMonth" | "billing" | "isOwner">>;
 
 /** The price in force in a given month (the last change at or before it, else the starting price). */
 function priceAt(row: Pick<LedgerRow, "monthlyFee" | "feeChanges">, month: number): number {
@@ -162,6 +162,7 @@ function priceAt(row: Pick<LedgerRow, "monthlyFee" | "feeChanges">, month: numbe
 
 /** What one month costs for this row. A yearly row owes its whole year's fee in its payment month and nothing in the others. */
 export function feeFor(row: PricedRow, month: number): number {
+  if (row.isOwner) return 0; // the owner pays nothing
   if (isYearly(row)) return month === (row.startMonth ?? 1) ? priceAt(row, month) : 0;
   return priceAt(row, month);
 }
@@ -177,6 +178,7 @@ export function rentTotals(rows: (PricedRow & Pick<LedgerRow, "year">)[], today:
   let monthly = 0;
   let yearly = 0;
   for (const r of rows) {
+    if (r.isOwner) continue;
     if (isYearly(r)) yearly += currentFee(r, today);
     else monthly += currentFee(r, today);
   }
@@ -185,6 +187,7 @@ export function rentTotals(rows: (PricedRow & Pick<LedgerRow, "year">)[], today:
 
 /** A yearly row's one status: what the whole year has paid against the yearly fee (any month counts). */
 export function yearlyStatus(row: PricedRow & Pick<LedgerRow, "payments" | "year">, today: { year: number; month: number }): CellStatus {
+  if (row.isOwner) return "future";
   const paid = row.payments.reduce<number>((n, v) => n + (v ?? 0), 0);
   const hasMoney = row.payments.some((v) => v != null);
   const future = row.year > today.year || (row.year === today.year && today.month < (row.startMonth ?? 1));
@@ -194,7 +197,7 @@ export function yearlyStatus(row: PricedRow & Pick<LedgerRow, "payments" | "year
 
 /** Colour class of one month's cell: a yearly row is neutral in the months it owes nothing. */
 export function monthStatus(row: PricedRow, month: number, amount: number | null, isFuture: boolean): CellStatus {
-  if (isYearly(row) && month !== (row.startMonth ?? 1) && amount == null) return "future";
+  if ((row.isOwner || (isYearly(row) && month !== (row.startMonth ?? 1))) && amount == null) return "future";
   return cellStatus(amount, feeFor(row, month), isFuture);
 }
 

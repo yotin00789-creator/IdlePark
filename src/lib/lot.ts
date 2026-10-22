@@ -7,7 +7,7 @@ import type { LedgerRow } from "../../shared/types";
 import type { AppData, Customer, Zone } from "./dataStore";
 import type { CarInput, PadTone } from "@/components/lot3d/LotScene";
 
-export type RentTone = "paid" | "pending" | "late";
+export type RentTone = "paid" | "pending" | "late" | "owner";
 
 export interface LotCar {
   key: string; // slot id, or "N04#2" for a motorcycle bay
@@ -29,6 +29,7 @@ export const toneLabel: Record<PadTone, string> = {
   paid: "ชำระแล้ว",
   pending: "รอชำระ",
   late: "ค้างชำระ",
+  owner: "เจ้าของ",
 };
 
 /** What an empty slot is, from its zone: free to rent, reserved (Private) or closed. */
@@ -63,7 +64,7 @@ export function buildLotCars(data: AppData): LotCar[] {
     const unpaid = findUnpaid([row], year, month, lookbackMonths);
     const due = Math.min(row.dueDay ?? dueDay, lastDay); // each vehicle has its own due day
     const late = unpaid.some((u) => u.month < month || (u.month === month && day > due));
-    const tone = late ? "late" : unpaid.some((u) => u.month === month) ? "pending" : "paid";
+    const tone = row.isOwner ? "owner" : late ? "late" : unpaid.some((u) => u.month === month) ? "pending" : "paid";
     const type = VEHICLE_TYPES.find((t) => t.id === row.vehicleType);
     out.push({
       key: row.bay != null ? `${row.slotId}#${row.bay}` : row.slotId,

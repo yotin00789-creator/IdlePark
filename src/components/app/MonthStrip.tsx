@@ -13,7 +13,7 @@ const TONE: Record<CellStatus, string> = {
 };
 interface MonthStripProps {
   payments: Money[];
-  row: Pick<LedgerRow, "monthlyFee" | "feeChanges" | "slotId" | "startMonth" | "billing">;
+  row: Pick<LedgerRow, "monthlyFee" | "feeChanges" | "slotId" | "startMonth" | "billing" | "isOwner">;
   year: number;
   today: { year: number; month: number };
   className?: string;
@@ -21,6 +21,14 @@ interface MonthStripProps {
 
 // 12 small cells, one per month: green paid, amber partial, red zero, gray empty.
 export default function MonthStrip({ payments, row, year, today, className }: MonthStripProps) {
+  if (row.isOwner) {
+    return (
+      <div className={cn("flex items-center gap-2", className)} role="img" aria-label="รถเจ้าของ ไม่คิดเงิน">
+        <span className="h-1.5 flex-1 rounded-full bg-blue-300 dark:bg-blue-500/50" />
+        <span className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400">เจ้าของ</span>
+      </div>
+    );
+  }
   if (isYearly(row)) {
     // a yearly renter is one long bar: green when the year's rent is paid, red when it is owed
     const st = yearlyStatus({ ...row, payments, year }, today);

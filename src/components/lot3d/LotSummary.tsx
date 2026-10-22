@@ -9,7 +9,7 @@ import { slotLabel } from "../../../shared/lot";
 import type { LedgerRow } from "../../../shared/types";
 import type { SlotDef } from "./LotScene";
 
-const DOT = { paid: "bg-success-500", pending: "bg-warning-500", late: "bg-error-500", empty: "bg-gray-400" } as const;
+const DOT = { paid: "bg-success-500", pending: "bg-warning-500", late: "bg-error-500", empty: "bg-gray-400", owner: "bg-blue-600" } as const;
 
 interface LotSummaryProps {
   data: AppData;
@@ -27,10 +27,10 @@ export default function LotSummary({ data, cars, slots, unplaced, onSelect, onOp
     const eligible = rentedRows(data).filter((r) => feeFor(r, month) > 0 && !isPrepaid(r, year, month));
     const expected = eligible.reduce((n, r) => n + feeFor(r, month), 0);
     const collected = eligible.reduce((n, r) => n + Math.min(r.payments[month - 1] ?? 0, feeFor(r, month)), 0);
-    const count = { paid: 0, pending: 0, late: 0 };
+    const count = { paid: 0, pending: 0, late: 0, owner: 0 };
     for (const c of cars) count[c.tone]++;
     const owing = cars
-      .filter((c) => c.tone !== "paid")
+      .filter((c) => c.tone !== "paid" && c.tone !== "owner")
       .map((c) => ({ c, due: c.unpaid.reduce((n, u) => n + u.due, 0) }))
       .sort((a, b) => Number(b.c.tone === "late") - Number(a.c.tone === "late") || b.due - a.due);
     const taken = new Set(cars.map((c) => c.slotId));
@@ -75,6 +75,7 @@ export default function LotSummary({ data, cars, slots, unplaced, onSelect, onOp
           </li>
         ))}
       </ul>
+      {stats.count.owner > 0 && <p className="-mt-2 text-theme-xs text-gray-500 dark:text-gray-400"><span className="inline-block size-2 rounded-full bg-blue-600 align-middle" aria-hidden /> รถเจ้าของ {stats.count.owner} คัน (ไม่คิดเงิน ไม่นับในตัวเลขข้างบน)</p>}
       {(stats.reserved > 0 || stats.closed > 0) && (
         <p className="-mt-2 text-theme-xs text-gray-500 dark:text-gray-400">
           ไม่นับเป็นที่ว่าง:{stats.reserved > 0 && <> <span className="inline-block size-2 rounded-full bg-violet-500 align-middle" aria-hidden /> Private {stats.reserved} ช่อง</>}{stats.closed > 0 && <> <span className="inline-block size-2 rounded-full bg-gray-700 align-middle dark:bg-gray-400" aria-hidden /> ปิดใช้งาน {stats.closed} ช่อง</>}

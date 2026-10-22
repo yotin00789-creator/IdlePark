@@ -56,7 +56,7 @@ route("GET", "/data", "user", async (c) => {
     years,
     savings: sv.savings,
     savingsNotes: sv.notes,
-    customers: customers.map((r) => ({ id: r.id, name: r.name, phone: r.phone, email: r.email, note: r.note, isActive: r.is_active })),
+    customers: customers.map((r) => ({ id: r.id, name: r.name, phone: r.phone, email: r.email, note: r.note, isActive: r.is_active, isOwner: Boolean(r.is_owner) })),
     zones: zones.map((r) => ({ id: r.id, name: r.name, description: r.description, access: r.access, slotIds: r.slot_ids ?? [], motoCapacity: r.moto_capacity, capacity: r.capacity, defaultFee: r.default_fee, sortOrder: r.sort_order, isActive: r.is_active })),
     accounts: accounts.map((r) => ({ id: r.id, bank: r.bank, masked: maskAccount(decrypt(r.number_enc)), holder: r.holder, label: r.label, shows: r.shows })),
     settings,
@@ -85,8 +85,9 @@ route("PUT", "/ledger/payments", EDIT as any, async (c) => {
     const accounts = new Map((await q.query("select id, bank, label from bank_accounts")).map((a) => [a.id as number, `${a.bank} ${a.label}`.trim()]));
     const methodText = (m: string | null, acc: number | null) => (m == null ? "" : m === "cash" ? " (เงินสด)" : ` (โอน${acc != null && accounts.has(acc) ? ` ${accounts.get(acc)}` : ""})`);
     for (const ch of parsed) {
-      const [row] = await q.query("select id, year, owner_name, plate from ledger_rows where id = $1", [ch.rowId]);
+      const [row] = await q.query("select id, year, owner_name, plate, is_owner from ledger_rows where id = $1", [ch.rowId]);
       if (!row) throw new HttpError(404, "ไม่พบแถวที่แก้ไข");
+      if (row.is_owner && (ch.amount ?? 0) > 0) throw new HttpError(400, `${row.owner_name} เป็นเจ้าของ ไม่คิดเงิน จึงบันทึกยอดชำระไม่ได้`);
       const [prev] = await q.query("select amount, method, account_id from payments where row_id = $1 and month = $2", [ch.rowId, ch.month]);
       const before = prev ? (prev.amount as number | null) : null;
       // the method stays as it was unless the caller says otherwise; a transfer may name the account, cash never does
@@ -195,6 +196,8 @@ async function refuseDuplicatePlate(q: Queryable, year: number, plate: string, s
 
 async function insertRow(q: Queryable, f: { year: number; customerId: number; ownerName: string; plate: string; zoneId: number | null; kind: string; bulkCount: number; fee: number; startMonth: number; note: string; body: any }) {
   const lot = lotFields(f.body);
+  const [who] = await q.query("select is_owner from customers where id = $1", [f.customerId]);
+  const owner = Boolean(who?.is_owner); // an owner's vehicle never costs anything
   await refuseDuplicatePlate(q, f.year, f.plate, lot.slot_id);
   const place = await resolvePlacement(q, {
     year: f.year, rowId: null, vehicleType: lot.vehicle_type, zoneId: f.zoneId, slotId: lot.slot_id,
@@ -203,9 +206,9 @@ async function insertRow(q: Queryable, f: { year: number; customerId: number; ow
   const [{ n }] = await q.query<{ n: number }>("select coalesce(max(sort_order), -1)::int + 1 as n from ledger_rows where year = $1", [f.year]);
   const [r] = await q.query(
     `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, start_month, note,
-       slot_id, vehicle_type, car_color, plate_province, due_day, bay, billing)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning *`,
-    [f.year, n, f.customerId, f.ownerName, f.plate, place.zone_id, f.kind, f.bulkCount, f.fee, f.startMonth, f.note, place.slot_id, lot.vehicle_type, lot.car_color, lot.plate_province, lot.due_day, place.bay, billingOf(f.body, place.slot_id)],
+       slot_id, vehicle_type, car_color, plate_province, due_day, bay, billing, is_owner)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) returning *`,
+    [f.year, n, f.customerId, f.ownerName, f.plate, place.zone_id, f.kind, f.bulkCount, owner ? 0 : f.fee, f.startMonth, f.note, place.slot_id, lot.vehicle_type, lot.car_color, lot.plate_province, lot.due_day, place.bay, billingOf(f.body, place.slot_id), owner],
   );
   return r;
 }
@@ -298,6 +301,8 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
         swapped = occ;
       }
     }
+    const [custRow] = customerId == null ? [] : await q.query("select is_owner from customers where id = $1", [customerId]);
+    const ownerFlag = customerId == null ? Boolean(cur.is_owner) : Boolean(custRow?.is_owner);
     const place = await resolvePlacement(q, {
       year: cur.year, rowId: id, vehicleType: n.vehicle_type, zoneId: n.zone_id, slotId: n.slot_id,
       bay: b.bay !== undefined ? (b.bay === null ? null : Number(b.bay)) : n.slot_id === cur.slot_id && n.vehicle_type === cur.vehicle_type && n.zone_id === cur.zone_id ? cur.bay : null,
@@ -309,8 +314,8 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
     await q.query(
       `update ledger_rows set owner_name=$2, plate=$3, zone_id=$4, kind=$5, monthly_fee=$6, is_active=$7, needs_review=$8,
          note=$9, start_month=$10, end_month=$11, paid_through_year=$12, paid_through_month=$13, sort_order=$14,
-         slot_id=$15, vehicle_type=$16, car_color=$17, plate_province=$18, due_day=$19, bay=$20, fee_changes=$21::jsonb, customer_id=$22, billing=$23 where id=$1`,
-      [id, n.owner_name, n.plate, n.zone_id, n.kind, n.monthly_fee, n.is_active, n.needs_review, n.note, n.start_month, n.end_month, n.paid_through_year, n.paid_through_month, n.sort_order, n.slot_id, n.vehicle_type, n.car_color, n.plate_province, n.due_day, n.bay, JSON.stringify(n.fee_changes), customerId, n.billing],
+         slot_id=$15, vehicle_type=$16, car_color=$17, plate_province=$18, due_day=$19, bay=$20, fee_changes=$21::jsonb, customer_id=$22, billing=$23, is_owner=$24 where id=$1`,
+      [id, n.owner_name, n.plate, n.zone_id, n.kind, n.monthly_fee, n.is_active, n.needs_review, n.note, n.start_month, n.end_month, n.paid_through_year, n.paid_through_month, n.sort_order, n.slot_id, n.vehicle_type, n.car_color, n.plate_province, n.due_day, n.bay, JSON.stringify(n.fee_changes), customerId, n.billing, ownerFlag],
     );
     let swapNote = "";
     if (swapped) {
@@ -436,9 +441,9 @@ route("POST", "/ledger/years/:year/copy-previous", EDIT as any, async (c) => {
     let i = 0;
     for (const r of prev) {
       await q.query(
-        `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, note, slot_id, vehicle_type, car_color, plate_province, due_day, bay, start_month, billing)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'',$10,$11,$12,$13,$14,$15,$16,$17)`,
-        [y, i++, r.customer_id, r.owner_name, r.plate, r.zone_id, r.kind, r.bulk_count, feeFor({ monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [] }, 12), r.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, r.bay, r.billing === "yearly" ? r.start_month : 1, r.billing], // a yearly row keeps its payment month
+        `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, note, slot_id, vehicle_type, car_color, plate_province, due_day, bay, start_month, billing, is_owner)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'',$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+        [y, i++, r.customer_id, r.owner_name, r.plate, r.zone_id, r.kind, r.bulk_count, feeFor({ monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [] }, 12), r.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, r.bay, r.billing === "yearly" ? r.start_month : 1, r.billing, r.is_owner], // a yearly row keeps its payment month
       );
     }
     await audit(c, { action: "year.copy", entity: "year", entityId: y, summary: `คัดลอกผู้เช่า ${prev.length} แถวจากปี ${y - 1} ไปปี ${y}` }, q);
@@ -459,21 +464,21 @@ route("POST", "/customers", EDIT as any, async (c) => {
     const dup = await q.query("select id from customers where name = $1", [name]);
     if (dup.length) throw new HttpError(409, "มีลูกค้าชื่อนี้อยู่แล้ว");
     const [cu] = await q.query(
-      "insert into customers (name, phone, email, note) values ($1,$2,$3,$4) returning *",
-      [name, str(b.phone, 40), str(b.email, 200), str(b.note, 300)],
+      "insert into customers (name, phone, email, note, is_owner) values ($1,$2,$3,$4,$5) returning *",
+      [name, str(b.phone, 40), str(b.email, 200), str(b.note, 300), b.isOwner === true],
     );
     const rows = [];
     for (const v of vehicles) {
       const r = await insertRow(q, {
         year: y, customerId: cu.id, ownerName: name, plate: str(v.plate, 40), zoneId: v.zoneId ? Number(v.zoneId) : null, kind: "normal", bulkCount: 1,
-        fee: money(v.monthlyFee) ?? settings.monthlyFeeDefault, startMonth: v.startMonth ? month(v.startMonth) : 1, note: "", body: v,
+        fee: b.isOwner === true ? 0 : (money(v.monthlyFee) ?? settings.monthlyFeeDefault), startMonth: v.startMonth ? month(v.startMonth) : 1, note: "", body: v,
       });
       rows.push(rowFromDb(r));
     }
     await audit(c, { action: "customer.create", entity: "customer", entityId: cu.id, summary: `เพิ่มลูกค้า ${name}${vehicles.length ? ` พร้อมรถ ${vehicles.length} คัน ในปี ${y}` : ""}`, after: { name, phone: cu.phone, email: cu.email, vehicles: vehicles.map((v) => v.plate) } }, q);
     return { cu, rows };
   });
-  return { customer: { id: out.cu.id, name: out.cu.name, phone: out.cu.phone, email: out.cu.email, note: out.cu.note, isActive: true }, rows: out.rows };
+  return { customer: { id: out.cu.id, name: out.cu.name, phone: out.cu.phone, email: out.cu.email, note: out.cu.note, isActive: true, isOwner: Boolean(out.cu.is_owner) }, rows: out.rows };
 });
 
 route("PATCH", "/customers/:id", EDIT as any, async (c) => {
@@ -487,6 +492,7 @@ route("PATCH", "/customers/:id", EDIT as any, async (c) => {
     email: b.email === undefined ? cur.email : str(b.email, 200),
     note: b.note === undefined ? cur.note : str(b.note, 300),
     is_active: b.isActive === undefined ? cur.is_active : Boolean(b.isActive),
+    is_owner: b.isOwner === undefined ? cur.is_owner : Boolean(b.isOwner),
   };
   if (!n.name) throw new HttpError(400, "กรุณากรอกชื่อลูกค้า");
   if (n.name !== cur.name) {
@@ -494,7 +500,14 @@ route("PATCH", "/customers/:id", EDIT as any, async (c) => {
     if (dup.length) throw new HttpError(409, "มีลูกค้าชื่อนี้อยู่แล้ว");
   }
   await c.db.tx(async (q) => {
-    await q.query("update customers set name=$2, phone=$3, email=$4, note=$5, is_active=$6 where id=$1", [id, n.name, n.phone, n.email, n.note, n.is_active]);
+    await q.query("update customers set name=$2, phone=$3, email=$4, note=$5, is_active=$6, is_owner=$7 where id=$1", [id, n.name, n.phone, n.email, n.note, n.is_active, n.is_owner]);
+    // owner or not applies to every vehicle of the customer, in every year
+    if (n.is_owner !== cur.is_owner) await q.query("update ledger_rows set is_owner = $2 where customer_id = $1", [id, n.is_owner]);
+    if (cur.is_owner && !n.is_owner) {
+      // no longer an owner: vehicles that had no price get the default price, so they start paying like everyone else
+      const settings = await getSettings(q);
+      await q.query("update ledger_rows set monthly_fee = $2 where customer_id = $1 and monthly_fee = 0", [id, settings.monthlyFeeDefault]);
+    }
     // the name follows the customer into every year of the ledger
     if (n.name !== cur.name) await q.query("update ledger_rows set owner_name = $2 where customer_id = $1", [id, n.name]);
     if (n.is_active !== cur.is_active) {
@@ -505,7 +518,7 @@ route("PATCH", "/customers/:id", EDIT as any, async (c) => {
       action: "customer.update",
       entity: "customer",
       entityId: id,
-      summary: `แก้ไขลูกค้า ${n.name}${n.name !== cur.name ? ` (เดิม ${cur.name})` : ""}`,
+      summary: `แก้ไขลูกค้า ${n.name}${n.name !== cur.name ? ` (เดิม ${cur.name})` : ""}${n.is_owner !== cur.is_owner ? (n.is_owner ? " · ตั้งเป็นเจ้าของ (ไม่คิดเงิน)" : " · ยกเลิกสถานะเจ้าของ") : ""}`,
       before: { name: cur.name, phone: cur.phone, email: cur.email, note: cur.note, isActive: cur.is_active },
       after: { name: n.name, phone: n.phone, email: n.email, note: n.note, isActive: n.is_active },
     }, q);
@@ -692,8 +705,8 @@ route("POST", "/audit/:id/restore", EDIT as any, async (c) => {
       if ((await q.query("select 1 from customers where id = $1", [k.id])).length) throw new HttpError(409, "ลูกค้านี้ถูกกู้คืนไปแล้ว");
       if ((await q.query("select 1 from customers where name = $1", [k.name])).length) throw new HttpError(409, `มีลูกค้าชื่อ “${k.name}” อยู่แล้ว กู้คืนซ้ำไม่ได้`);
       await q.query(
-        "insert into customers (id, name, phone, email, note, is_active, created_at) values ($1,$2,$3,$4,$5,$6,$7)",
-        [k.id, k.name, k.phone ?? "", k.email ?? "", k.note ?? "", k.is_active ?? true, k.created_at ?? new Date().toISOString()],
+        "insert into customers (id, name, phone, email, note, is_active, created_at, is_owner) values ($1,$2,$3,$4,$5,$6,$7,$8)",
+        [k.id, k.name, k.phone ?? "", k.email ?? "", k.note ?? "", k.is_active ?? true, k.created_at ?? new Date().toISOString(), Boolean(k.is_owner)],
       );
       summary = `กู้คืนลูกค้า ${k.name}`;
     } else if (a.action === "zone.delete") {
@@ -731,11 +744,11 @@ route("POST", "/audit/:id/restore", EDIT as any, async (c) => {
       await q.query(
         `insert into ledger_rows (id, year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, source_row, monthly_fee,
            paid_through_year, paid_through_month, start_month, end_month, note, needs_review, is_active, created_at,
-           slot_id, vehicle_type, car_color, plate_province, due_day, bay, fee_changes, billing)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb,$27)`,
+           slot_id, vehicle_type, car_color, plate_province, due_day, bay, fee_changes, billing, is_owner)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb,$27,$28)`,
         [r.id, r.year, r.sort_order, custOk ? r.customer_id : null, r.owner_name, r.plate, place.zone_id, r.kind, r.bulk_count, r.source_row, r.monthly_fee,
           r.paid_through_year, r.paid_through_month, r.start_month, r.end_month, r.note, r.needs_review, r.is_active, r.created_at,
-          place.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, place.bay, JSON.stringify(r.fee_changes ?? []), r.billing ?? "monthly"],
+          place.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, place.bay, JSON.stringify(r.fee_changes ?? []), r.billing ?? "monthly", Boolean(r.is_owner)],
       );
       for (const p of snap.payments ?? []) {
         await q.query("insert into payments (row_id, month, amount, method, account_id, updated_at, updated_by) values ($1,$2,$3,$4, (select id from bank_accounts where id = $5), $6, (select id from users where id = $7))", [r.id, p.month, p.amount, p.method ?? "cash", p.account_id ?? null, p.updated_at, p.updated_by]);

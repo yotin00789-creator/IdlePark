@@ -66,10 +66,10 @@ export default function Customers() {
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                   {rows.map(({ c, vehicles, rent }) => (
                     <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-white/3">
-                      <td className="app-td"><span className={cn("font-medium text-gray-800 dark:text-white/90", !c.isActive && "text-gray-500 dark:text-gray-400 line-through")}>{c.name}</span></td>
+                      <td className="app-td"><span className={cn("font-medium text-gray-800 dark:text-white/90", !c.isActive && "text-gray-500 dark:text-gray-400 line-through")}>{c.name}</span>{c.isOwner && <span className="ms-2 rounded-full bg-blue-50 px-2 py-px text-theme-xs font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">เจ้าของ</span>}</td>
                       <td className="app-td text-theme-xs text-gray-500">{c.phone || "—"}{c.email && <><br />{c.email}</>}</td>
                       <td className="app-td"><span className="flex flex-wrap gap-1">{vehicles.length ? vehicles.map((v) => <PlateChip key={v.id} plate={v.plate || "ไม่มีทะเบียน"} />) : <span className="text-gray-500 dark:text-gray-400">ไม่มีในปีนี้</span>}</span></td>
-                      <td className="app-td text-end"><RentTotal monthly={rent.monthly} yearly={rent.yearly} /></td>
+                      <td className="app-td text-end">{c.isOwner ? <span className="text-theme-sm text-gray-500 dark:text-gray-400">ไม่คิดเงิน</span> : <RentTotal monthly={rent.monthly} yearly={rent.yearly} />}</td>
                       <td className="app-td text-end"><button onClick={() => setForm({ customer: c })} className="text-theme-sm font-medium text-link hover:text-link-hover">{editable ? "แก้ไข" : "ดู"}</button></td>
                     </tr>
                   ))}
@@ -80,7 +80,7 @@ export default function Customers() {
               {rows.map(({ c, vehicles, rent }) => (
                 <li key={c.id}>
                   <button onClick={() => setForm({ customer: c })} className="w-full px-4 py-3.5 text-start">
-                    <div className="flex items-center justify-between gap-3"><span className={cn("text-base font-medium text-gray-800 dark:text-white/90", !c.isActive && "text-gray-500 line-through dark:text-gray-400")}>{c.name}</span><RentTotal monthly={rent.monthly} yearly={rent.yearly} className="text-end text-theme-sm" /></div>
+                    <div className="flex items-center justify-between gap-3"><span className={cn("text-base font-medium text-gray-800 dark:text-white/90", !c.isActive && "text-gray-500 line-through dark:text-gray-400")}>{c.name}{c.isOwner && <span className="ms-2 rounded-full bg-blue-50 px-2 py-px text-theme-xs font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">เจ้าของ</span>}</span>{c.isOwner ? <span className="text-theme-xs text-gray-500 dark:text-gray-400">ไม่คิดเงิน</span> : <RentTotal monthly={rent.monthly} yearly={rent.yearly} className="text-end text-theme-sm" />}</div>
                     {(c.phone || c.email) && <span className="mt-0.5 block truncate text-theme-xs text-gray-500 dark:text-gray-400">{[c.phone, c.email].filter(Boolean).join(" · ")}</span>}
                     <span className="mt-1.5 flex flex-wrap gap-1">{vehicles.length ? vehicles.map((v) => <PlateChip key={v.id} plate={v.plate || "ไม่มีทะเบียน"} />) : <span className="text-theme-xs text-gray-500 dark:text-gray-400">ไม่มีรถในปีนี้</span>}</span>
                   </button>

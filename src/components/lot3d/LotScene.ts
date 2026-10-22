@@ -36,7 +36,7 @@ export interface SlotsFile {
 }
 
 /** Rent status of the car this month; drives the colour of the slot marking. */
-export type PadTone = "empty" | "paid" | "pending" | "late" | "closed" | "private";
+export type PadTone = "empty" | "paid" | "pending" | "late" | "closed" | "private" | "owner";
 export interface CarInput {
   key: string; // the slot id, or "N04#2" for the third motorcycle bay of slot N04
   slotId: string;
@@ -45,7 +45,7 @@ export interface CarInput {
   color: string;
   plate: string;
   province: string;
-  tone: "paid" | "pending" | "late";
+  tone: "paid" | "pending" | "late" | "owner";
 }
 /** iso = three-quarter view of the plate side, plate = straight at the plate, side = profile. */
 export type ViewMode = "iso" | "plate" | "side";
@@ -75,6 +75,7 @@ const PAD_COLOR: Record<PadTone, [number, number]> = {
   pending: [0xeab308, 0.42],
   closed: [0x475467, 0.55],
   private: [0x7a5af8, 0.45],
+  owner: [0x2563eb, 0.4],
   late: [0xef4444, 0.48],
 };
 const FONT = '"IBM Plex Sans Thai","Noto Sans Thai",Tahoma,"Leelawadee UI",system-ui,sans-serif';
@@ -401,7 +402,7 @@ export class LotScene {
       }
     }
     // a slot's marking follows the worst rent status of whoever is in it (storage has no car model)
-    const rank: Record<string, number> = { paid: 1, pending: 2, late: 3 };
+    const rank: Record<string, number> = { owner: 0, paid: 1, pending: 2, late: 3 };
     const toneOf = new Map<string, PadTone>();
     for (const c of valid) {
       const prev = toneOf.get(c.slotId);

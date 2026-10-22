@@ -298,4 +298,13 @@ alter table ledger_rows add column billing text not null default 'monthly' check
 update ledger_rows set billing = 'yearly' where slot_id = 'K01';
 `,
   },
+  {
+    id: 8,
+    name: "owner_customers",
+    sql: `
+-- the owner of the house: their vehicles may stand on the map but cost nothing, are never chased and never counted
+alter table customers add column is_owner boolean not null default false;
+alter table ledger_rows add column is_owner boolean not null default false;
+`,
+  },
 ];

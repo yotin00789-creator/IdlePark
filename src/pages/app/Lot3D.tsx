@@ -24,6 +24,7 @@ const LEGEND = [
   { tone: "paid", dot: "bg-success-500" },
   { tone: "pending", dot: "bg-warning-500" },
   { tone: "late", dot: "bg-error-500" },
+  { tone: "owner", dot: "bg-blue-600" },
   { tone: "empty", dot: "bg-gray-400" },
   { tone: "private", dot: "bg-violet-500" },
   { tone: "closed", dot: "bg-gray-700" },

@@ -102,7 +102,7 @@ export async function buildBackup(db: Db) {
   wv.columns = [
     { header: "ปี (พ.ศ.)", width: 10 }, { header: "ชื่อลูกค้า", width: 24 }, { header: "ทะเบียน", width: 14 }, { header: "จังหวัด", width: 16 },
     { header: "ประเภท", width: 16 }, { header: "สี", width: 10 }, { header: "ช่องจอด", width: 16 }, { header: "โซน", width: 18 },
-    { header: "จ่ายค่าเช่า", width: 12 }, { header: "ค่าเช่าเริ่มปี (บาท)", width: 16 }, { header: "ประวัติราคาในปี", width: 28 }, { header: "นัดชำระทุกวันที่", width: 14 }, { header: "เริ่มเดือน", width: 12 }, { header: "สิ้นสุดเดือน", width: 12 }, { header: "สถานะ", width: 12 },
+    { header: "จ่ายค่าเช่า", width: 14 }, { header: "ค่าเช่าเริ่มปี (บาท)", width: 16 }, { header: "ประวัติราคาในปี", width: 28 }, { header: "นัดชำระทุกวันที่", width: 14 }, { header: "เริ่มเดือน", width: 12 }, { header: "สิ้นสุดเดือน", width: 12 }, { header: "สถานะ", width: 12 },
   ];
   let vehicles = 0;
   const today = bangkokToday();
@@ -113,7 +113,7 @@ export async function buildBackup(db: Db) {
       wv.addRow([
         y.year, r.ownerName, r.plate, r.plateProvince, isStorageSlot(r.slotId) ? "คลังเก็บของ" : r.vehicleType ? vehicleLabel(r.vehicleType) : "",
         r.carColor ?? "", r.slotId ? slotLabel(r.slotId) : "", r.zoneId != null ? (zoneName.get(r.zoneId) ?? "") : "",
-        r.billing === "yearly" ? "รายปี" : "รายเดือน", r.monthlyFee / 100, feeSteps(r).map((s) => `${s.from === 1 ? "เริ่มปี" : "ตั้งแต่ " + THAI_MONTHS_SHORT[s.from - 1]} ${s.fee / 100}`).join(" → "), r.dueDay ?? "ค่าเริ่มต้น", THAI_MONTHS[r.startMonth - 1], r.endMonth ? THAI_MONTHS[r.endMonth - 1] : "", r.isActive ? "ใช้งาน" : "เลิกเช่า",
+        r.isOwner ? "เจ้าของ (ไม่คิดเงิน)" : r.billing === "yearly" ? "รายปี" : "รายเดือน", r.monthlyFee / 100, feeSteps(r).map((s) => `${s.from === 1 ? "เริ่มปี" : "ตั้งแต่ " + THAI_MONTHS_SHORT[s.from - 1]} ${s.fee / 100}`).join(" → "), r.dueDay ?? "ค่าเริ่มต้น", THAI_MONTHS[r.startMonth - 1], r.endMonth ? THAI_MONTHS[r.endMonth - 1] : "", r.isActive ? "ใช้งาน" : "เลิกเช่า",
       ]);
     }
   }

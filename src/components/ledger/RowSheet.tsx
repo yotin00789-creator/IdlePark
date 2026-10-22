@@ -65,6 +65,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
 
   // the customer's vehicles that are not on the map yet: pick one of them instead of creating a duplicate
   const sameCustomer = data.customers.find((c) => c.name === name.trim());
+  const owner = row ? row.isOwner : Boolean(sameCustomer?.isOwner); // the owner of the house: no rent, never chased
   const plateKey = plate.replace(/\s+/g, "").toUpperCase();
   const waiting = row ? [] : (data.years.find((y) => y.year === year)?.rows ?? []).filter(
     (r) => r.isActive && r.kind !== "excluded" && !r.slotId && ((sameCustomer && r.customerId === sameCustomer.id) || (plateKey && r.plate.replace(/\s+/g, "").toUpperCase() === plateKey)),
@@ -82,7 +83,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
   const save = async () => {
     const feeParsed = parseBaht(fee);
     if (!name.trim()) return setError("กรุณากรอกชื่อผู้เช่า");
-    if (feeParsed === "invalid" || feeParsed == null || feeParsed <= 0) return setError(`${yearly ? "ค่าเช่าต่อปี" : "ค่าเช่าต่อเดือน"}ต้องเป็นตัวเลขมากกว่า 0`);
+    if (!owner && (feeParsed === "invalid" || feeParsed == null || feeParsed <= 0)) return setError(`${yearly ? "ค่าเช่าต่อปี" : "ค่าเช่าต่อเดือน"}ต้องเป็นตัวเลขมากกว่า 0`);
     setBusy(true);
     setError(null);
     const body = {
@@ -94,9 +95,9 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
       carColor: storage ? null : lot.carColor || null,
       zoneId: lot.zoneId ? Number(lot.zoneId) : null,
       dueDay: lot.dueDay ? Number(lot.dueDay) : null,
-      monthlyFee: feeParsed,
+      ...(owner ? {} : { monthlyFee: feeParsed }),
       billing,
-      ...(row && feeParsed !== startFee ? { feeFrom: yearly ? 1 : Number(feeFrom) } : {}),
+      ...(row && !owner && feeParsed !== startFee ? { feeFrom: yearly ? 1 : Number(feeFrom) } : {}),
       kind,
       startMonth: Number(startMonth),
       endMonth: endMonth ? Number(endMonth) : null,
@@ -203,17 +204,17 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
         <RentKindPicker value={lot} onChange={(patch) => { setLot((v) => ({ ...v, ...patch })); if (patch.slotId !== undefined && isStorageSlot(patch.slotId) !== storage) setBilling(isStorageSlot(patch.slotId) ? "yearly" : "monthly"); }} year={year} exceptRowId={row?.id} />
         <div className="grid grid-cols-2 gap-4">
           <TextField label={storage ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder={storage ? "คลังเก็บของ" : "เช่น 1กข 1234"} />
-          <TextField label={yearly ? "ค่าเช่าต่อปี (บาท)" : "ค่าเช่าต่อเดือน (บาท)"} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={yearly ? "จ่ายปีละครั้ง" : row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />
+          {owner ? <p className="flex items-end rounded-lg bg-blue-50 px-3 py-2.5 text-theme-sm text-blue-800 dark:bg-blue-500/10 dark:text-blue-300">เจ้าของ ไม่คิดค่าเช่า</p> : <TextField label={yearly ? "ค่าเช่าต่อปี (บาท)" : "ค่าเช่าต่อเดือน (บาท)"} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={yearly ? "จ่ายปีละครั้ง" : row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />}
         </div>
-        <div>
+        {!owner && <div>
           <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">จ่ายค่าเช่า</span>
           <div role="radiogroup" aria-label="จ่ายค่าเช่า" className="inline-flex rounded-lg bg-gray-100 p-0.5 dark:bg-white/8">
             {([["monthly", "รายเดือน"], ["yearly", "รายปี (ปีละครั้ง)"]] as const).map(([v, label]) => (
               <button key={v} type="button" role="radio" aria-checked={billing === v} onClick={() => setBilling(v)} className={cn("h-9 rounded-md px-3.5 text-theme-sm font-medium", billing === v ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-700 dark:text-white" : "text-gray-600 dark:text-gray-400")}>{label}</button>
             ))}
           </div>
-        </div>
-        {row && priceChanged && !yearly && (
+        </div>}
+        {row && !owner && priceChanged && !yearly && (
           <div className="rounded-lg border border-gold-300 bg-gold-50/60 p-3 dark:border-gold-500/40 dark:bg-gold-500/10">
             <SelectField label="ใช้ราคาใหม่ตั้งแต่เดือน" value={feeFrom} onChange={(e) => setFeeFrom(e.target.value)} hint={`เดือนก่อนหน้านั้นยังคิดราคาเดิม ไม่เปลี่ยนยอดค้างหรือยอดที่เก็บไปแล้ว${row.year < data.today.year ? " (นี่คือปีที่ผ่านมาแล้ว)" : ""}`}>
               {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m} {row.year}</option>)}

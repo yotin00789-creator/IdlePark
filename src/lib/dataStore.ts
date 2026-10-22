@@ -17,6 +17,7 @@ export interface Customer {
   email: string;
   note: string;
   isActive: boolean;
+  isOwner: boolean; // the owner of the house: no rent, never chased
 }
 export interface Zone {
   id: number;

@@ -1,5 +1,5 @@
 import { cn } from "@/utils";
-import { currentFee } from "../../../shared/calc";
+import { currentFee, isYearly } from "../../../shared/calc";
 import Button from "@/components/app/Button";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
 import { SelectField, TextAreaField, TextField, Toggle } from "@/components/app/Field";
@@ -30,6 +30,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
   const [email, setEmail] = useState(c?.email ?? "");
   const [note, setNote] = useState(c?.note ?? "");
   const [active, setActive] = useState(c?.isActive ?? true);
+  const [owner, setOwner] = useState(c?.isOwner ?? false); // the owner of the house: vehicles on the map, no rent
   const [vehicles, setVehicles] = useState<VehicleDraft[]>([{ plate: "", fee: String((data?.settings.monthlyFeeDefault ?? 120000) / 100), startMonth: String(data?.today.month ?? 1), ...emptyLotFields(), billing: "monthly" }]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,13 +61,13 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
     setError(null);
     try {
       if (c) {
-        await api.patch(`/customers/${c.id}`, { name, phone, email, note, isActive: active });
+        await api.patch(`/customers/${c.id}`, { name, phone, email, note, isActive: active, isOwner: owner });
       } else {
         const list = vehicles.filter((v) => v.plate.trim() || v.slotId);
-        const fees = list.map((v) => parseBaht(v.fee));
-        if (fees.some((f) => f === "invalid" || f == null || f <= 0)) throw new Error("ค่าเช่าต้องเป็นตัวเลขมากกว่า 0");
+        const fees = list.map((v) => (owner ? 0 : parseBaht(v.fee)));
+        if (!owner && fees.some((f) => f === "invalid" || f == null || f <= 0)) throw new Error("ค่าเช่าต้องเป็นตัวเลขมากกว่า 0");
         await api.post("/customers", {
-          name, phone, email, note, year,
+          name, phone, email, note, year, isOwner: owner,
           vehicles: list.map((v, i) => ({
             plate: v.plate.trim() || (isStorageSlot(v.slotId) ? "คลังเก็บของ" : ""),
             zoneId: v.zoneId ? Number(v.zoneId) : null,
@@ -137,6 +138,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
             <TextField label="อีเมล" type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!editable} />
           </div>
           <TextAreaField label="หมายเหตุ" value={note} onChange={(e) => setNote(e.target.value)} disabled={!editable} />
+          <Toggle checked={owner} onChange={setOwner} disabled={!editable} label="เจ้าของ (ไม่คิดเงิน)" hint="รถและคลังของเจ้าของแสดงบนผังได้ แต่ไม่คิดค่าเช่า ไม่แจ้งค้างชำระ และไม่นับในยอด" />
           {c && <Toggle checked={active} onChange={setActive} disabled={!editable} label="ยังเช่าอยู่" hint={`ปิดเมื่อเลิกเช่า: รถของลูกค้าในปี ${year} จะไม่ถูกแจ้งเตือนค้างชำระ`} />}
 
           {c ? (
@@ -156,7 +158,7 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
                           <span className="text-theme-xs text-gray-600 dark:text-gray-400">{r.vehicleType ? vehicleLabel(r.vehicleType) : "ไม่ระบุประเภท"}</span>
                         </span>
                         <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-                          {r.slotId ? slotLabel(r.slotId) : "ยังไม่ระบุช่อง"} · {formatBaht(currentFee(r, data.today))} บาท/{isStorageSlot(r.slotId) ? "ปี" : "เดือน"} · นัดชำระวันที่ {r.dueDay ?? data.settings.reminders.dueDay}{r.dueDay == null ? " (เริ่มต้น)" : ""}{!r.isActive && " · เลิกเช่า"}
+                          {r.slotId ? slotLabel(r.slotId) : "ยังไม่ระบุช่อง"} · {r.isOwner ? "เจ้าของ ไม่คิดเงิน" : `${formatBaht(currentFee(r, data.today))} บาท/${isYearly(r) ? "ปี" : "เดือน"}`} · นัดชำระวันที่ {r.dueDay ?? data.settings.reminders.dueDay}{r.dueDay == null ? " (เริ่มต้น)" : ""}{!r.isActive && " · เลิกเช่า"}
                         </span>
                       </span>
                       {editable && <button onClick={() => setRowEdit({ row: r })} className="shrink-0 text-theme-sm text-link">แก้ไข</button>}
@@ -179,6 +181,10 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
               {vehicles.map((v, i) => (
                 <div key={i} className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <RentKindPicker value={v} onChange={(patch) => setVehicle(i, patch)} year={year} taken={new Map(vehicles.flatMap((o, j) => (j !== i && o.slotId ? [[o.slotId, name || "รายการอีกคันในฟอร์มนี้"] as [string, string]] : [])))} />
+                  {owner ? (
+                  <TextField label={isStorageSlot(v.slotId) ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={v.plate} onChange={(e) => setVehicle(i, { plate: e.target.value })} placeholder={isStorageSlot(v.slotId) ? "คลังเก็บของ" : "1กข 1234"} />
+                  ) : (
+                    <>
                   <div role="radiogroup" aria-label="จ่ายค่าเช่า" className="inline-flex rounded-lg bg-gray-100 p-0.5 dark:bg-white/8">
                     {([["monthly", "รายเดือน"], ["yearly", "รายปี (ปีละครั้ง)"]] as const).map(([b, label]) => (
                       <button key={b} type="button" role="radio" aria-checked={v.billing === b} onClick={() => setVehicle(i, { billing: b })} className={cn("h-9 rounded-md px-3.5 text-theme-sm font-medium", v.billing === b ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-700 dark:text-white" : "text-gray-600 dark:text-gray-400")}>{label}</button>
@@ -194,6 +200,8 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
                       {THAI_MONTHS.map((m, k) => <option key={m} value={k + 1}>{m}</option>)}
                     </SelectField>
                   </div>
+                    </>
+                  )}
                   <VehicleLotFields
                     value={v}
                     onChange={(patch) => setVehicle(i, patch)}

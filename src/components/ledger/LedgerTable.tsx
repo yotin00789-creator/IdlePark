@@ -145,6 +145,7 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
           <button onClick={() => onEditRow(row)} className="flex w-full flex-col items-start px-3 py-2 text-start" title="แก้ไขข้อมูลผู้เช่า">
             <span className={cn("max-w-full truncate text-theme-sm font-medium", dim ? "text-gray-500" : "text-gray-800 dark:text-white/90")}>{row.ownerName}</span>
             <span className="flex flex-wrap gap-x-1.5 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+              {row.isOwner && <span className="text-blue-700 dark:text-blue-300">เจ้าของ</span>}
               {dim && <span>ไม่รวมในยอด</span>}
               {row.needsReview && <span className="text-warning-600 dark:text-warning-400">ควรตรวจ</span>}
               {!row.isActive && <span>เลิกเช่า</span>}
@@ -155,7 +156,11 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
         <td className={cn(cellBase, sticky2, "bg-white px-2 group-hover:bg-gray-50 dark:bg-gray-900 dark:group-hover:bg-gray-800")}>
           <PlateChip plate={row.plate} />
         </td>
-        {isYearly(row) ? (
+        {row.isOwner ? (
+          <td colSpan={12} className={cn(cellBase, "px-2 py-1.5")}>
+            <div className="flex min-h-10 items-center rounded-lg bg-blue-50 px-3 text-theme-sm text-blue-800 ring-1 ring-blue-200 ring-inset dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-500/30"><b className="font-semibold">เจ้าของ</b><span className="ms-2">· ไม่คิดค่าเช่า ไม่แจ้งค้างชำระ ไม่นับในยอด</span></div>
+          </td>
+        ) : isYearly(row) ? (
           <td colSpan={12} className={cn(cellBase, "px-2 py-1.5")}>
             <YearlyBar row={row} year={year.year} today={today} r={r} editable={editable} dim={dim} onCommit={(v) => void savePayments([{ rowId: row.id, month: row.startMonth, amount: v, ...fieldsFor(row, row.startMonth, v) }])} onPaste={pasteRows} />
           </td>

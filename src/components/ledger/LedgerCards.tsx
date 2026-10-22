@@ -38,6 +38,7 @@ export default function LedgerCards({ year, today, rows, editable, onEditRow }: 
                   <div className="mt-1 flex items-center gap-2">
                     <PlateChip plate={r.plate} />
                     {r.kind === "excluded" && <span className="text-theme-xs text-gray-500">ไม่รวมในยอด</span>}
+                    {r.isOwner && <span className="text-theme-xs text-blue-700 dark:text-blue-300">เจ้าของ</span>}
                     {r.needsReview && <span className="text-theme-xs text-warning-600">ควรตรวจ</span>}
                     {!r.isActive && <span className="text-theme-xs text-gray-500">เลิกเช่า</span>}
                   </div>
@@ -109,7 +110,8 @@ function MonthSheet({ row, year, today, editable, onClose, onEditRow }: MonthShe
         )
       }
     >
-      <div className={cn("grid gap-3", isYearly(row) ? "grid-cols-1" : "grid-cols-2")}>
+      {row.isOwner && <p className="rounded-lg bg-blue-50 px-4 py-3 text-theme-sm text-blue-800 dark:bg-blue-500/10 dark:text-blue-300">รถของเจ้าของ ไม่คิดค่าเช่า ไม่แจ้งค้างชำระ และไม่นับในยอด จึงไม่มียอดชำระให้กรอก</p>}
+      <div className={cn("grid gap-3", row.isOwner ? "hidden" : isYearly(row) ? "grid-cols-1" : "grid-cols-2")}>
         {Array.from({ length: 12 }, (_, i) => {
           const m = i + 1;
           if (isYearly(row) && m !== row.startMonth) return null; // a yearly renter has one payment a year
