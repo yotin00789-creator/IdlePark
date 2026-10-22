@@ -27,6 +27,8 @@ function apiDevServer(): Plugin {
 export default defineConfig(({ mode }) => {
   // make .env values (DATABASE_URL, SMTP_*, ...) visible to the dev API
   Object.assign(process.env, { ...loadEnv(mode, process.cwd(), ""), ...process.env });
+  // a dev session never touches a remote database (e.g. the production one that `vercel env pull` writes into .env.local)
+  if (process.env.ALLOW_REMOTE_DB !== "1") for (const k of Object.keys(process.env)) if (/^(DATABASE_URL|POSTGRES_|NEON_|PG(HOST|USER|PASSWORD|DATABASE|PORT|SSLMODE)\w*)/.test(k)) delete process.env[k];
   process.env.TZ = "Asia/Bangkok"; // the dev API runs in this process: Thai time, like production
   return {
     resolve: {

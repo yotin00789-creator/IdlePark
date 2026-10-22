@@ -1,30 +1,17 @@
-import { useTheme } from "@/context/ThemeContext";
-import type { ApexOptions } from "apexcharts";
-import ReactApexChart from "react-apexcharts";
 import type { YearCalc } from "../../../shared/types";
+import ComboChart from "./ComboChart";
 
 export default function CumulativeChart({ calc }: { calc: YearCalc[] }) {
-  const { theme } = useTheme();
-  const options: ApexOptions = {
-    colors: ["#d9ae00", "#12b76a"],
-    chart: { fontFamily: "IBM Plex Sans Thai, sans-serif", toolbar: { show: false }, background: "transparent" },
-    theme: { mode: theme === "dark" ? "dark" : "light" },
-    plotOptions: { bar: { columnWidth: "42%", borderRadius: 4, borderRadiusApplication: "end" } },
-    dataLabels: { enabled: false },
-    xaxis: { categories: calc.map((c) => String(c.year)), axisBorder: { show: false }, axisTicks: { show: false } },
-    yaxis: { labels: { formatter: (v: number) => `${Math.round(v / 1000)}k` } },
-    legend: { position: "top", horizontalAlign: "left", markers: { size: 5 } },
-    grid: { borderColor: theme === "dark" ? "#1d2939" : "#f2f4f7" },
-    tooltip: { y: { formatter: (v: number) => `฿${Math.round(v).toLocaleString("en-US")}` } },
-  };
   return (
-    <ReactApexChart
-      type="bar"
+    <ComboChart
+      label="รวม(หักแล้ว) ทั้งปี และยอดคงเหลือสะสม"
+      categories={calc.map((c) => String(c.year))}
       height={280}
-      options={options}
+      format={(v) => `฿${Math.round(v).toLocaleString("en-US")}`}
+      axis={(v) => `${Math.round(v / 1000)}k`}
       series={[
-        { name: "รวม(หักแล้ว) ทั้งปี", data: calc.map((c) => c.totals.net / 100) },
-        { name: "ยอดคงเหลือสะสม", data: calc.map((c) => c.cumulative / 100) },
+        { name: "รวม(หักแล้ว) ทั้งปี", type: "bar", data: calc.map((c) => c.totals.net / 100), fill: "fill-gold-500", stroke: "", dot: "bg-gold-500" },
+        { name: "ยอดคงเหลือสะสม", type: "bar", data: calc.map((c) => c.cumulative / 100), fill: "fill-success-500", stroke: "", dot: "bg-success-500" },
       ]}
     />
   );

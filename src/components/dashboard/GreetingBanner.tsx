@@ -75,7 +75,7 @@ export default function GreetingBanner({ years, year, onYear, unpaidCount, unpai
               เปิดสมุดรายรับ <ArrowRightGlyph className="size-4" />
             </Link>
           </div>
-          <div className="ms-auto text-end md:me-[min(44%,18rem)]">
+          <div className="ms-auto text-end md:me-[min(50%,23rem)]">
             <p className="num text-xl leading-tight font-semibold md:text-2xl">{formatThaiTime(now)}</p>
             <p className="text-theme-xs text-gray-300">วันที่ {formatThaiDate(now)}</p>
           </div>
