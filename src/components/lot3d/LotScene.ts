@@ -111,6 +111,9 @@ function plateTexture(text: string, province: string) {
 
 // ------------------------------------------------------------------ scene
 
+/** How much longer (m) the shed built into the model is drawn than it was modelled. */
+const SHED_EXTRA_LENGTH_M = 3.9; // = the slot width in slots.json (8.28) minus the modelled 4.38
+
 export class LotScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -127,6 +130,7 @@ export class LotScene {
   private outline: THREE.LineLoop;
   private walls: THREE.Object3D | null = null;
   private shed: THREE.Object3D | null = null;
+  private shedTemplate: THREE.Object3D | null = null; // the shed as modelled: the copies on other slots start from this
   private shedRoof: number | null = null; // measured roof height of the built-in shed (the status plane sits just above it)
   private storageIds = new Set<string>(); // slots that are storage sheds (from the zones)
   private extraSheds = new Map<string, { group: THREE.Group; height: number }>(); // a copy of the shed model on every other storage slot
@@ -269,6 +273,15 @@ export class LotScene {
       this.scene.add(lot);
       if (this.shed) {
         lot.updateMatrixWorld(true);
+        this.shedTemplate = this.shed.clone(true);
+        // the built-in shed is a long one: it is drawn longer, almost up to the first car of the top row (the east end stays at the wall)
+        const before = new THREE.Box3().setFromObject(this.shed);
+        const len = before.max.x - before.min.x;
+        this.shed.scale.x *= (len + SHED_EXTRA_LENGTH_M) / len;
+        lot.updateMatrixWorld(true);
+        const after = new THREE.Box3().setFromObject(this.shed);
+        this.shed.position.x += before.max.x - after.max.x;
+        lot.updateMatrixWorld(true);
         this.shedRoof = new THREE.Box3().setFromObject(this.shed).max.y;
       }
       // the storage shed is rentable like a parking space: clicking it picks its slot
@@ -311,7 +324,7 @@ export class LotScene {
   private isShed = (id: string) => this.slotById[id]?.kind === "storage" || this.extraSheds.has(id);
   // the status colour always lies on the ground. The built-in shed fills its slot, so its plane is made wider than the
   // slot to leave a green/red/amber border visible all around the shed; a copied shed is smaller than its slot anyway
-  private padGrow = (s: SlotDef) => (s.kind === "storage" ? 1.4 : 0);
+  private padGrow = (s: SlotDef) => (s.kind === "storage" ? 1.0 : 0);
   private padY = () => 0.03;
 
   /**
@@ -319,7 +332,7 @@ export class LotScene {
    * copied onto the slot, turned along its length and kept inside its lines. Slots that stop being storage lose their copy.
    */
   private syncSheds() {
-    if (!this.shed) return;
+    if (!this.shed || !this.shedTemplate) return;
     for (const [id, e] of [...this.extraSheds]) {
       if (this.storageIds.has(id) && this.slotById[id]) continue;
       this.scene.remove(e.group);
@@ -329,7 +342,7 @@ export class LotScene {
       const s = this.slotById[id];
       if (!s || s.kind === "storage" || this.extraSheds.has(id)) continue;
       const group = new THREE.Group();
-      const copy = this.shed.clone(true);
+      const copy = this.shedTemplate.clone(true);
       group.add(copy);
       group.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(group);

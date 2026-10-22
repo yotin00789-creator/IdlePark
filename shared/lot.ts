@@ -64,7 +64,7 @@ export const SLOT_SIZE: Record<string, readonly [number, number]> = {
   C01: [3.9, 5.6], C02: [3.9, 5.6],
   W01: [2.6, 5.6], W02: [2.6, 5.6], W03: [2.6, 5.6], W04: [2.6, 5.6],
   H01: [3.9, 5.6], H02: [3.9, 5.6], H03: [3.9, 5.6],
-  K01: [4.38, 2.61],
+  K01: [8.28, 2.61],
 };
 
 const BAY_W = 1.0; // a motorcycle is 0.76 m wide: this leaves a gap on both sides
