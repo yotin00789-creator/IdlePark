@@ -8,7 +8,7 @@ import { parseBaht, THAI_MONTHS, THAI_MONTHS_SHORT, formatBaht } from "@/lib/for
 import { toast } from "@/lib/toast";
 import { useState } from "react";
 import { isStorageSlot } from "../../../shared/lot";
-import VehicleLotFields, { DueDayField, type LotFieldsValue } from "./VehicleLotFields";
+import VehicleLotFields, { DueDayField, RentKindPicker, type LotFieldsValue } from "./VehicleLotFields";
 import { currentFee, feeSteps } from "../../../shared/calc";
 import type { LedgerRow, RowKind } from "../../../shared/types";
 
@@ -161,6 +161,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
           </p>
         )}
         <ComboField label="ชื่อผู้เช่า" value={name} onChange={setName} options={nameOptions} placeholder="เลือกลูกค้าเดิมหรือพิมพ์ชื่อใหม่" newHint={(v) => `ไม่มีลูกค้าชื่อ “${v}” ระบบจะเพิ่มเป็นลูกค้าใหม่`} />
+        <RentKindPicker value={lot} onChange={(patch) => setLot((v) => ({ ...v, ...patch }))} year={year} exceptRowId={row?.id} />
         <div className="grid grid-cols-2 gap-4">
           <TextField label={storage ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder={storage ? "คลังเก็บของ" : "เช่น 1กข 1234"} />
           <TextField label={storage ? "ค่าเช่าต่อปี (บาท)" : "ค่าเช่าต่อเดือน (บาท)"} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={storage ? "คลังเก็บของจ่ายปีละครั้ง" : row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />

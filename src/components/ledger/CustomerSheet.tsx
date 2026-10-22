@@ -12,7 +12,7 @@ import { toast } from "@/lib/toast";
 import { useState } from "react";
 import { isStorageSlot, slotLabel, vehicleLabel } from "../../../shared/lot";
 import type { LedgerRow } from "../../../shared/types";
-import VehicleLotFields, { DueDayField, emptyLotFields, type LotFieldsValue } from "./VehicleLotFields";
+import VehicleLotFields, { DueDayField, RentKindPicker, emptyLotFields, type LotFieldsValue } from "./VehicleLotFields";
 
 interface VehicleDraft extends LotFieldsValue {
   plate: string;
@@ -39,7 +39,14 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
   const year = data.today.year;
   const existing = c ? (data.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.customerId === c.id) : [];
 
-  const setVehicle = (i: number, patch: Partial<VehicleDraft>) => setVehicles((v) => v.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  // switching to the shed clears the fee (it is a yearly amount, not the monthly default) and switching back restores the default
+  const setVehicle = (i: number, patch: Partial<VehicleDraft>) =>
+    setVehicles((v) => v.map((x, j) => {
+      if (j !== i) return x;
+      const next = { ...x, ...patch };
+      if (patch.slotId !== undefined && isStorageSlot(patch.slotId) !== isStorageSlot(x.slotId)) next.fee = isStorageSlot(patch.slotId) ? "" : String((data?.settings.monthlyFeeDefault ?? 120000) / 100);
+      return next;
+    }));
 
   const save = async () => {
     if (!name.trim()) return setError("กรุณากรอกชื่อลูกค้า");
@@ -164,13 +171,14 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
               <h3 className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">รถหรือคลังเก็บของที่เช่า (เว้นว่างได้)</h3>
               {vehicles.map((v, i) => (
                 <div key={i} className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+                  <RentKindPicker value={v} onChange={(patch) => setVehicle(i, patch)} year={year} taken={new Map(vehicles.flatMap((o, j) => (j !== i && o.slotId ? [[o.slotId, name || "รายการอีกคันในฟอร์มนี้"] as [string, string]] : [])))} />
                   <div className="grid grid-cols-2 gap-3">
-                    <TextField label="ทะเบียนรถ" value={v.plate} onChange={(e) => setVehicle(i, { plate: e.target.value })} placeholder="1กข 1234" />
+                    <TextField label={isStorageSlot(v.slotId) ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={v.plate} onChange={(e) => setVehicle(i, { plate: e.target.value })} placeholder={isStorageSlot(v.slotId) ? "คลังเก็บของ" : "1กข 1234"} />
                     <TextField label={isStorageSlot(v.slotId) ? "ค่าเช่า/ปี (บาท)" : "ค่าเช่า/เดือน (บาท)"} inputMode="decimal" value={v.fee} onChange={(e) => setVehicle(i, { fee: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <DueDayField value={v.dueDay} onChange={(d) => setVehicle(i, { dueDay: d })} defaultDay={data.settings.reminders.dueDay} />
-                    <SelectField label="เริ่มเช่าเดือน" value={v.startMonth} onChange={(e) => setVehicle(i, { startMonth: e.target.value })}>
+                    <SelectField label={isStorageSlot(v.slotId) ? "จ่ายประจำปีในเดือน" : "เริ่มเช่าเดือน"} value={v.startMonth} onChange={(e) => setVehicle(i, { startMonth: e.target.value })}>
                       {THAI_MONTHS.map((m, k) => <option key={m} value={k + 1}>{m}</option>)}
                     </SelectField>
                   </div>

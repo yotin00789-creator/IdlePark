@@ -93,3 +93,35 @@ describe("the storage shed is paid once a year", () => {
     expect(next).toMatchObject({ startMonth: 5, monthlyFee: 600000 });
   });
 });
+
+describe("one customer, vehicles with different prices and different due days", () => {
+  it("each vehicle keeps its own monthly price, its own due day, and the shed is yearly; reminders follow each one", async () => {
+    const { planReminders } = await import("../server/reminders.js");
+    const { getDb } = await import("../server/db.js");
+    const { getSettings } = await import("../server/settings.js");
+    await freshApp();
+    const admin = await setupAdmin();
+    const y = bangkokToday().year;
+    const body = { year: y, ownerName: "หลายคัน" };
+    const a = (await admin.post("/ledger/rows", { ...body, plate: "A 1", monthlyFee: 120000, dueDay: 5, slotId: "N01", vehicleType: "sedan" })).json.row;
+    const b = (await admin.post("/ledger/rows", { ...body, customerId: a.customerId, plate: "B 2", monthlyFee: 150000, dueDay: 20, slotId: "N02", vehicleType: "suv" })).json.row;
+    const c = (await admin.post("/ledger/rows", { ...body, customerId: a.customerId, plate: "คลัง", monthlyFee: 600000, dueDay: 10, startMonth: 1, slotId: "K01" })).json.row;
+    const rows = (await admin.get("/data")).json.years.find((x: any) => x.year === y).rows;
+    expect(rows.filter((r: any) => r.customerId === a.customerId).map((r: any) => [r.plate, r.monthlyFee, r.dueDay]).sort()).toEqual([["A 1", 120000, 5], ["B 2", 150000, 20], ["คลัง", 600000, 10]].sort());
+
+    // 22 October: A (due 5th) and the shed (due 10th) are late, B (due 20th) too; nobody has paid
+    const db = await getDb();
+    const settings = await getSettings(db);
+    const plan = await planReminders(db, new Date(`${y - 543}-10-22T09:00:00+07:00`), { ...settings.reminders, lookbackMonths: 0 }, true);
+    const items = plan.groups.flatMap((g: any) => g.items.map((i: any) => ({ plate: i.plate, due: i.due, dueDay: i.dueDay, month: g.month })));
+    const of = (plate: string) => items.find((i: any) => i.plate === plate);
+    expect(of("A 1")).toMatchObject({ due: 120000, dueDay: 5, month: 10 });
+    expect(of("B 2")).toMatchObject({ due: 150000, dueDay: 20, month: 10 });
+    expect(of("คลัง")).toMatchObject({ due: 600000, dueDay: 10, month: 1 }); // the whole year, owed since its payment month
+    // paying the shed's year clears it, the cars are untouched
+    await admin.put("/ledger/payments", { changes: [{ rowId: c.id, month: 1, amount: 600000 }] });
+    const after = await planReminders(db, new Date(`${y - 543}-10-22T09:00:00+07:00`), { ...settings.reminders, lookbackMonths: 0 }, true);
+    expect(after.groups.flatMap((g: any) => g.items.map((i: any) => i.plate)).sort()).toEqual(["A 1", "B 2"]);
+    void b;
+  });
+});

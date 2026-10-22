@@ -10,7 +10,6 @@ import PageMeta from "@/components/common/PageMeta";
 import { PlusGlyph } from "@/icons";
 import { api, errorMessage } from "@/lib/api";
 import { dataStore, useData, type Zone } from "@/lib/dataStore";
-import { parseBaht } from "@/lib/format";
 import { canEdit, useAuth } from "@/lib/session";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
@@ -136,7 +135,6 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
   const [slotIds, setSlotIds] = useState<string[]>(zone?.slotIds ?? []);
   const [moto, setMoto] = useState(Boolean(zone?.motoCapacity));
   const [motoCap, setMotoCap] = useState(String(zone?.motoCapacity || ""));
-  const [fee, setFee] = useState(zone?.defaultFee != null ? String(zone.defaultFee / 100) : "");
   const [active, setActive] = useState(zone?.isActive ?? true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -152,13 +150,11 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
 
   const save = async () => {
     if (!name.trim()) return setError("กรุณากรอกชื่อโซน");
-    const f = parseBaht(fee);
-    if (f === "invalid") return setError("ค่าเช่าเริ่มต้นต้องเป็นตัวเลข");
     const cap = moto ? Number(motoCap) : 0;
     if (moto && (!cap || cap < 1)) return setError("กรอกจำนวนมอเตอร์ไซค์ที่จอดได้ (อย่างน้อย 1 คัน)");
     setBusy(true);
     setError(null);
-    const body = { name, description, access, slotIds, motoCapacity: cap, defaultFee: f, isActive: active };
+    const body = { name, description, access, slotIds, motoCapacity: cap, isActive: active };
     try {
       if (zone) await api.patch(`/zones/${zone.id}`, body);
       else await api.post("/zones", body);
@@ -278,7 +274,6 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
             )}
           </div>
 
-          <TextField label="ค่าเช่าเริ่มต้นของโซน (บาท/เดือน)" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} disabled={!editable} wrapperClassName="max-w-xs" hint={fee ? undefined : "เว้นว่างเพื่อใช้ค่าเริ่มต้นของระบบ"} />
           {error && <p role="alert" className="text-theme-sm text-error-600 dark:text-error-500">{error}</p>}
         </div>
       </Sheet>

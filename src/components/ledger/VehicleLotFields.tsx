@@ -1,6 +1,7 @@
 import { SelectField, TextField } from "@/components/app/Field";
+import { cn } from "@/utils";
 import { useData, type Zone } from "@/lib/dataStore";
-import { CAR_COLORS, SLOT_IDS, VEHICLE_TYPES, isMotorcycle, isStorageSlot, slotLabel } from "../../../shared/lot";
+import { CAR_COLORS, SLOT_IDS, STORAGE_SLOT, VEHICLE_TYPES, isMotorcycle, isStorageSlot, slotLabel } from "../../../shared/lot";
 
 export interface LotFieldsValue {
   zoneId: string;
@@ -63,7 +64,7 @@ export default function VehicleLotFields({ value, onChange, year, exceptRowId, t
         </SelectField>
       )}
 
-      {moto ? (
+      {storage ? null : moto ? (
         <div>
           <SelectField label="โซนมอเตอร์ไซค์" value={value.zoneId} onChange={(e) => onChange({ zoneId: e.target.value, slotId: "" })}>
             <option value="">เลือกโซน…</option>
@@ -83,7 +84,7 @@ export default function VehicleLotFields({ value, onChange, year, exceptRowId, t
         <div className="space-y-4">
           <SelectField label="ช่องจอด / คลังเก็บของ" value={value.slotId} onChange={(e) => setSlot(e.target.value)}>
             <option value="">ยังไม่ระบุช่อง</option>
-            {SLOT_IDS.map((id) => {
+            {SLOT_IDS.filter((id) => !isStorageSlot(id)).map((id) => {
               const z = zoneOfSlot(id);
               const closed = z && !z.isActive;
               const motoZone = z && z.motoCapacity > 0;
@@ -114,7 +115,7 @@ export default function VehicleLotFields({ value, onChange, year, exceptRowId, t
       )}
 
       {storage ? (
-        <p className="text-theme-xs text-gray-500 dark:text-gray-400">คลังเก็บของไม่มีรถ จึงไม่ต้องระบุประเภท สี หรือทะเบียน</p>
+        <p className="text-theme-xs text-gray-500 dark:text-gray-400">คลังเก็บของไม่มีรถ จึงไม่ต้องระบุประเภท สี หรือทะเบียน ค่าเช่าจ่ายปีละครั้ง</p>
       ) : (
         <>
           <TextField label="จังหวัดบนป้ายทะเบียน" value={value.plateProvince} onChange={(e) => onChange({ plateProvince: e.target.value })} placeholder="เช่น กรุงเทพมหานคร" maxLength={40} />
@@ -139,6 +140,41 @@ export default function VehicleLotFields({ value, onChange, year, exceptRowId, t
         </>
       )}
     </fieldset>
+  );
+}
+
+
+/** "What is rented": a parking space (car / motorcycle, monthly) or the storage shed (one only, yearly). Once the shed is rented it cannot be picked again. */
+export function RentKindPicker({ value, onChange, year, exceptRowId, taken }: Props) {
+  const { data } = useData();
+  const zones = data?.zones ?? [];
+  const rows = (data?.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.isActive && r.kind !== "excluded" && r.id !== exceptRowId);
+  const storageHolder = taken?.get(STORAGE_SLOT) ?? rows.find((r) => isStorageSlot(r.slotId))?.ownerName ?? "";
+  const storage = isStorageSlot(value.slotId);
+  const zoneOfShed = zones.find((z) => z.slotIds.includes(STORAGE_SLOT));
+  return (
+      <div>
+        <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">สิ่งที่เช่า</span>
+        <div role="radiogroup" aria-label="สิ่งที่เช่า" className="grid grid-cols-2 gap-2">
+          {([[false, "ที่จอดรถ", "รถยนต์ / มอเตอร์ไซค์ · จ่ายรายเดือน"], [true, "คลังเก็บของ", storageHolder ? `มีผู้เช่าแล้ว: ${storageHolder}` : "มีคลังเดียว · จ่ายปีละครั้ง"]] as const).map(([isStorage, label, hint]) => {
+            const blocked = isStorage && Boolean(storageHolder) && !storage;
+            return (
+              <button
+                key={label}
+                type="button"
+                role="radio"
+                aria-checked={storage === isStorage}
+                disabled={blocked}
+                onClick={() => (isStorage ? onChange({ slotId: STORAGE_SLOT, vehicleType: "", zoneId: String(zoneOfShed?.id ?? "") }) : storage && onChange({ slotId: "", zoneId: "" }))}
+                className={cn("rounded-lg border px-3 py-2.5 text-start", storage === isStorage ? "border-brand-500 bg-brand-25 dark:bg-brand-500/10" : "border-gray-200 dark:border-gray-700", blocked ? "cursor-not-allowed opacity-55" : storage !== isStorage && "hover:bg-gray-50 dark:hover:bg-white/5")}
+              >
+                <span className="block text-theme-sm font-medium text-gray-800 dark:text-white/90">{label}</span>
+                <span className="block text-theme-xs text-gray-500 dark:text-gray-400">{hint}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
   );
 }
 
