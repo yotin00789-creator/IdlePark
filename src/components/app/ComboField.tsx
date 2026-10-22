@@ -79,7 +79,7 @@ export default function ComboField({ label, value, onChange, options, hint, plac
           className="app-input pe-10"
           value={value}
           placeholder={placeholder}
-          onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)} // opens when the person clicks it, not when a sheet focuses the first field by itself
           onChange={(e) => { onChange(e.target.value); setTyped(true); setOpen(true); setActive(-1); }}
           onKeyDown={onKey}
         />
