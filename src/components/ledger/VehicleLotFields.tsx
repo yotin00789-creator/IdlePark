@@ -27,7 +27,7 @@ interface Props {
 export default function VehicleLotFields({ value, onChange, year, exceptRowId, taken }: Props) {
   const { data } = useData();
   const zones = data?.zones ?? [];
-  const rows = (data?.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.isActive && r.kind !== "excluded" && r.id !== exceptRowId);
+  const rows = (data?.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.isActive && r.id !== exceptRowId);
   const takenBy = new Map<string, string>(taken ?? []);
   for (const r of rows) if (r.slotId && !isMotorcycle(r.vehicleType)) takenBy.set(r.slotId, r.ownerName);
 
@@ -148,7 +148,7 @@ export default function VehicleLotFields({ value, onChange, year, exceptRowId, t
 export function RentKindPicker({ value, onChange, year, exceptRowId, taken }: Props) {
   const { data } = useData();
   const zones = data?.zones ?? [];
-  const rows = (data?.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.isActive && r.kind !== "excluded" && r.id !== exceptRowId);
+  const rows = (data?.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.isActive && r.id !== exceptRowId);
   const storageHolder = taken?.get(STORAGE_SLOT) ?? rows.find((r) => isStorageSlot(r.slotId))?.ownerName ?? "";
   const storage = isStorageSlot(value.slotId);
   const zoneOfShed = zones.find((z) => z.slotIds.includes(STORAGE_SLOT));

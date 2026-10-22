@@ -104,4 +104,21 @@ describe("fixing a vehicle that was added wrongly", () => {
     // the storage shed uses a label instead of a plate and is exempt
     expect((await admin.post("/ledger/rows", { year, ownerName: "คลังหนึ่ง", plate: "คลังเก็บของ", slotId: "K01", monthlyFee: 100000 })).status).toBe(200);
   });
+
+  it("a vehicle can be put in any slot, whatever zone it was in: the slot's zone wins; only a taken slot or a repeated plate is refused", async () => {
+    const za = (await admin.post("/zones", { name: "โซนเอ", slotIds: ["S01"] })).json.id;
+    const zb = (await admin.post("/zones", { name: "โซนบี", slotIds: ["S02"] })).json.id;
+    const car = (await admin.post("/ledger/rows", { year, ownerName: "ข้ามโซน", plate: "Z 1", slotId: "S01", vehicleType: "sedan" })).json.row;
+    expect(car.zoneId).toBe(za);
+    const moved = await admin.patch(`/ledger/rows/${car.id}`, { slotId: "S02" });
+    expect(moved.status).toBe(200);
+    expect(moved.json.row).toMatchObject({ slotId: "S02", zoneId: zb });
+    // a row that already carries another zone is not refused either
+    const other = (await admin.post("/ledger/rows", { year, ownerName: "มีโซนเดิม", plate: "Z 2", zoneId: za })).json.row;
+    const put = await admin.patch(`/ledger/rows/${other.id}`, { slotId: "S03", zoneId: za });
+    expect(put.status).toBe(200);
+    // what is still refused: the slot is taken, the plate repeats
+    expect((await admin.patch(`/ledger/rows/${other.id}`, { slotId: "S02" })).status).toBe(409);
+    expect((await admin.post("/ledger/rows", { year, ownerName: "ซ้ำ", plate: "Z 1" })).status).toBe(409);
+  });
 });

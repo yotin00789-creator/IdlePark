@@ -36,8 +36,7 @@ export async function resolvePlacement(q: Queryable, p: PlacementInput): Promise
   if (slot && !isSlotId(slot)) throw new HttpError(400, "ช่องจอดไม่ถูกต้อง");
   if (slot) {
     const owner = zoneOfSlot(slot);
-    if (zone && owner && owner.id !== zone.id) throw new HttpError(409, `${slotLabel(slot)} อยู่ในโซน “${owner.name}” ไม่ใช่โซน “${zone.name}”`);
-    if (!zone && owner) zone = owner; // the slot decides the zone
+    if (owner) zone = owner; // the slot decides the zone: a vehicle may be put in any slot, it simply belongs to that slot's zone
   }
 
   // ---- motorcycles: a zone with a motorcycle quota, a free bay in one of its slots
@@ -49,7 +48,7 @@ export async function resolvePlacement(q: Queryable, p: PlacementInput): Promise
     if (!p.counts) return { slot_id: slot ?? p.cur?.slot_id ?? null, zone_id: zone.id, bay: p.bay ?? p.cur?.bay ?? null };
     const mine = await q.query(
       `select id, slot_id, bay from ledger_rows
-        where year = $1 and zone_id = $2 and vehicle_type = 'motorcycle' and is_active and kind <> 'excluded' and id <> $3 and ${OVERLAP}`,
+        where year = $1 and zone_id = $2 and vehicle_type = 'motorcycle' and is_active and id <> $3 and ${OVERLAP}`,
       [p.year, zone.id, p.rowId ?? 0, p.startMonth, p.endMonth ?? 12],
     );
     if (mine.length >= zone.moto_capacity) throw new HttpError(409, `โซน “${zone.name}” จอดมอเตอร์ไซค์เต็มแล้ว (${zone.moto_capacity} คัน)`);
@@ -77,7 +76,7 @@ export async function resolvePlacement(q: Queryable, p: PlacementInput): Promise
   if (p.counts) {
     const [clash] = await q.query(
       `select owner_name, plate from ledger_rows
-        where year = $1 and slot_id = $2 and is_active and kind <> 'excluded' and id <> $3 and ${OVERLAP} limit 1`,
+        where year = $1 and slot_id = $2 and is_active and id <> $3 and ${OVERLAP} limit 1`,
       [p.year, slot, p.rowId ?? 0, p.startMonth, p.endMonth ?? 12],
     );
     if (clash) throw new HttpError(409, `${isStorageSlot(slot) ? "คลังเก็บของ" : `ช่อง ${slot}`} มี ${clash.owner_name}${clash.plate ? ` (${clash.plate})` : ""} อยู่แล้ว`);

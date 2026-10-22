@@ -188,7 +188,7 @@ async function refuseDuplicatePlate(q: Queryable, year: number, plate: string, s
   const norm = plate.replace(/\s+/g, "").toUpperCase();
   if (!norm || isStorageSlot(slotId)) return;
   const [dup] = await q.query(
-    "select id, owner_name, slot_id from ledger_rows where year = $1 and replace(upper(plate), ' ', '') = $2 and kind <> 'excluded' limit 1",
+    "select id, owner_name, slot_id from ledger_rows where year = $1 and replace(upper(plate), ' ', '') = $2 limit 1",
     [year, norm],
   );
   if (dup) throw new HttpError(409, `ทะเบียน ${plate} มีอยู่แล้วในสมุดรายรับปี ${year} (${dup.owner_name}${dup.slot_id ? ` · ${slotLabel(dup.slot_id)}` : " · ยังไม่ระบุช่อง"}) เลือกรถคันเดิมแทนการเพิ่มใหม่ เพื่อไม่ให้ยอดชำระเดิมหาย`);
@@ -201,7 +201,7 @@ async function insertRow(q: Queryable, f: { year: number; customerId: number; ow
   await refuseDuplicatePlate(q, f.year, f.plate, lot.slot_id);
   const place = await resolvePlacement(q, {
     year: f.year, rowId: null, vehicleType: lot.vehicle_type, zoneId: f.zoneId, slotId: lot.slot_id,
-    bay: f.body.bay == null ? null : Number(f.body.bay), startMonth: f.startMonth, endMonth: null, counts: f.kind === "normal",
+    bay: f.body.bay == null ? null : Number(f.body.bay), startMonth: f.startMonth, endMonth: null, counts: true,
   });
   const [{ n }] = await q.query<{ n: number }>("select coalesce(max(sort_order), -1)::int + 1 as n from ledger_rows where year = $1", [f.year]);
   const [r] = await q.query(
@@ -293,7 +293,7 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
     let swapped: Record<string, any> | null = null;
     if (b.swap === true && n.slot_id && n.slot_id !== cur.slot_id && cur.customer_id != null) {
       const [occ] = await q.query(
-        "select * from ledger_rows where year = $1 and slot_id = $2 and id <> $3 and is_active and kind <> 'excluded' and customer_id = $4",
+        "select * from ledger_rows where year = $1 and slot_id = $2 and id <> $3 and is_active and customer_id = $4",
         [cur.year, n.slot_id, id, cur.customer_id],
       );
       if (occ) {
@@ -306,7 +306,7 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
     const place = await resolvePlacement(q, {
       year: cur.year, rowId: id, vehicleType: n.vehicle_type, zoneId: n.zone_id, slotId: n.slot_id,
       bay: b.bay !== undefined ? (b.bay === null ? null : Number(b.bay)) : n.slot_id === cur.slot_id && n.vehicle_type === cur.vehicle_type && n.zone_id === cur.zone_id ? cur.bay : null,
-      startMonth: n.start_month, endMonth: n.end_month, counts: n.is_active && n.kind === "normal", cur: cur as any,
+      startMonth: n.start_month, endMonth: n.end_month, counts: n.is_active, cur: cur as any,
     });
     n.slot_id = place.slot_id;
     n.zone_id = place.zone_id;
@@ -408,7 +408,7 @@ route("POST", "/ledger/rows/:id/merge", EDIT as any, async (c) => {
     };
     const place = await resolvePlacement(q, {
       year: dst.year, rowId: dst.id, vehicleType: lot.vehicle_type, zoneId: lot.slot_id === dst.slot_id ? dst.zone_id : null, slotId: lot.slot_id,
-      bay: src.slot_id ? src.bay : dst.bay, startMonth: dst.start_month, endMonth: dst.end_month, counts: dst.is_active && dst.kind === "normal", cur: dst as any,
+      bay: src.slot_id ? src.bay : dst.bay, startMonth: dst.start_month, endMonth: dst.end_month, counts: dst.is_active, cur: dst as any,
     });
     await q.query(
       "update ledger_rows set slot_id=$2, zone_id=$3, bay=$4, vehicle_type=$5, car_color=$6, plate_province=$7, due_day=$8, plate=$9 where id=$1",
@@ -598,7 +598,7 @@ async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof z
     const rest = (o.slot_ids as string[]).filter((s) => !slots.includes(s));
     if (o.moto_capacity > 0) {
       if (o.moto_capacity > baysIn(rest)) throw new HttpError(409, `โซน “${o.name}” เป็นโซนมอเตอร์ไซค์ ถ้าเอา ${slots.map(slotLabel).join(", ")} ออกจะจอดครบ ${o.moto_capacity} คันไม่ได้ ลดจำนวนที่โซนนั้นก่อน`);
-      const used = await q.query("select owner_name from ledger_rows where zone_id = $1 and slot_id = any($2::text[]) and is_active and kind <> 'excluded' limit 1", [o.id, slots]);
+      const used = await q.query("select owner_name from ledger_rows where zone_id = $1 and slot_id = any($2::text[]) and is_active limit 1", [o.id, slots]);
       if (used.length) throw new HttpError(409, `${used[0].owner_name} จอดมอเตอร์ไซค์อยู่ในช่องที่จะย้าย`);
     }
     takes.push({ id: o.id, name: o.name, slots, rest, motoCapacity: o.moto_capacity });
@@ -611,7 +611,7 @@ async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof z
   if (id != null) {
     const today = bangkokToday().year;
     const held = await q.query(
-      "select id, owner_name, plate, slot_id, vehicle_type from ledger_rows where zone_id = $1 and year = $2 and is_active and kind <> 'excluded'",
+      "select id, owner_name, plate, slot_id, vehicle_type from ledger_rows where zone_id = $1 and year = $2 and is_active",
       [id, today],
     );
     const motos = held.filter((r) => isMotorcycle(r.vehicle_type));
@@ -734,7 +734,7 @@ route("POST", "/audit/:id/restore", EDIT as any, async (c) => {
       try {
         place = await resolvePlacement(q, {
           year: r.year, rowId: r.id, vehicleType: r.vehicle_type, zoneId: place.zone_id, slotId: r.slot_id, bay: r.bay,
-          startMonth: r.start_month, endMonth: r.end_month, counts: r.is_active && r.kind === "normal",
+          startMonth: r.start_month, endMonth: r.end_month, counts: r.is_active,
         });
       } catch (e) {
         if (!(e instanceof HttpError)) throw e;
