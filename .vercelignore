@@ -1,0 +1,15 @@
+# nothing from the local machine's data or tooling goes to Vercel: it builds from the source only
+.data
+.env*
+*.xlsx
+ที่จอดรถ.png
+prompt.md
+3d-model
+.claude
+.impeccable
+tests
+scripts
+skills-lock.json
+dist
+server-dist
+.vercel
