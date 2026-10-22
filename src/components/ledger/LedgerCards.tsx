@@ -28,7 +28,7 @@ export default function LedgerCards({ year, today, rows, editable, onEditRow }: 
   if (!rows.length) return <p className="app-card px-4 py-10 text-center text-theme-sm text-gray-500">ไม่พบแถวที่ตรงกับตัวกรอง</p>;
   return (
     <>
-      <ul className="space-y-2.5 pb-20">
+      <ul className="space-y-2.5">
         {rows.map((r) => (
           <li key={r.id}>
             <button onClick={() => setOpenId(r.id)} className={cn("app-card w-full p-4 text-start active:bg-gray-50 dark:active:bg-white/5", r.kind === "excluded" && "opacity-70")}>

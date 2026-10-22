@@ -27,7 +27,7 @@ export default function AppHeader() {
       </Link>
 
       <div className="ms-1 min-w-0 flex-1">
-        <h1 className="truncate text-base leading-tight font-semibold text-gray-800 md:text-lg dark:text-white/90">{title}</h1>
+        <h1 className="line-clamp-2 text-base leading-tight md:line-clamp-1 font-semibold text-gray-800 md:text-lg dark:text-white/90">{title}</h1>
         {description && <p className="hidden truncate text-theme-xs text-gray-500 md:block dark:text-gray-400">{description}</p>}
       </div>
 

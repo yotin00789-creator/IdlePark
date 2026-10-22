@@ -5,12 +5,12 @@ import PageHeader from "@/components/app/PageHeader";
 import PageMeta from "@/components/common/PageMeta";
 import LedgerCards from "@/components/ledger/LedgerCards";
 import LedgerTable from "@/components/ledger/LedgerTable";
+import MonthSummaryCard from "@/components/ledger/MonthSummaryCard";
 import RowSheet from "@/components/ledger/RowSheet";
 import { CELL_TONE, STATUS_LABEL } from "@/components/ledger/status";
 import { DownloadGlyph, PlusGlyph, SearchGlyph } from "@/icons";
 import { api, errorMessage } from "@/lib/api";
 import { dataStore, useCalc } from "@/lib/dataStore";
-import { monthName } from "@/lib/format";
 import { payMode, usePayMode } from "@/lib/payMode";
 import { canEdit, useAuth } from "@/lib/session";
 import { toast } from "@/lib/toast";
@@ -31,6 +31,22 @@ export default function Ledger() {
   const navigate = useNavigate();
   const [sheet, setSheet] = useState<{ row: LedgerRow | null } | null>(null);
   const [incompleteOnly, setIncompleteOnly] = useState(false);
+  // on a phone the cards are the default; "ตาราง" gives the same grid as the desktop, every cell editable
+  const [phoneGrid, setPhoneGrid] = useState(() => {
+    try {
+      return localStorage.getItem("idlepark.ledgerView") === "grid";
+    } catch {
+      return false;
+    }
+  });
+  const pickView = (grid: boolean) => {
+    setPhoneGrid(grid);
+    try {
+      localStorage.setItem("idlepark.ledgerView", grid ? "grid" : "cards");
+    } catch {
+      /* not remembered */
+    }
+  };
   const [busy, setBusy] = useState(false);
   const q = params.get("q") ?? "";
 
@@ -157,29 +173,38 @@ export default function Ledger() {
       </dl>
 
       {editable && (
-        <div className="mb-3 hidden flex-wrap items-center gap-x-3 gap-y-2 md:flex">
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="text-theme-sm font-medium text-gray-700 dark:text-gray-300">ยอดที่พิมพ์ใหม่รับเป็น</span>
           <PayMethodPicker compact value={mode} onChange={payMode.set} accounts={model?.data.accounts ?? []} />
-          <span className="text-theme-xs text-gray-500 dark:text-gray-400">ช่องที่มีเงินแล้วใช้วิธีเดิม · กดป้าย “สด/โอน” ที่มุมช่องเพื่อเปลี่ยน</span>
+          <span className="text-theme-xs text-gray-500 dark:text-gray-400">ช่องที่มีเงินแล้วใช้วิธีเดิม <span className="hidden md:inline">· กดป้าย “สด/โอน” ที่มุมช่องเพื่อเปลี่ยน</span></span>
         </div>
       )}
 
-      <ul className="mb-3 hidden flex-wrap items-center gap-x-4 gap-y-1 text-theme-xs text-gray-500 md:flex dark:text-gray-400" aria-label="คำอธิบายสี">
+      <ul className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-theme-xs text-gray-500 dark:text-gray-400" aria-label="คำอธิบายสี">
         {LEGEND.map((s) => (
           <li key={s} className="flex items-center gap-1.5">
             <span className={cn("inline-block h-4 w-6 rounded-sm border border-gray-200 dark:border-gray-700", CELL_TONE[s].split(" ").filter((c) => c.startsWith("bg-") || c.startsWith("dark:bg-")).join(" "))} />
             {STATUS_LABEL[s]}
           </li>
         ))}
-        <li>วางข้อมูลจาก Excel / Google Sheets ได้ · คลิกตัวเลขที่คำนวณเพื่อดูสูตร</li>
+        <li className="hidden md:block">วางข้อมูลจาก Excel / Google Sheets ได้ · คลิกตัวเลขที่คำนวณเพื่อดูสูตร</li>
       </ul>
 
-      <div className="app-card hidden overflow-hidden md:block">
+      <div className="mb-3 flex items-center gap-2 md:hidden">
+        <span className="text-theme-sm font-medium text-gray-700 dark:text-gray-300">มุมมอง</span>
+        <div role="radiogroup" aria-label="มุมมองสมุดรายรับ" className="inline-flex rounded-lg bg-gray-100 p-0.5 dark:bg-white/8">
+          {([[false, "การ์ด"], [true, "ตาราง (แก้ได้ทุกช่อง)"]] as const).map(([g, label]) => (
+            <button key={label} type="button" role="radio" aria-checked={phoneGrid === g} onClick={() => pickView(g)} className={cn("h-9 rounded-md px-3 text-theme-sm font-medium", phoneGrid === g ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-700 dark:text-white" : "text-gray-600 dark:text-gray-400")}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className={cn("app-card overflow-hidden", phoneGrid ? "block" : "hidden md:block")}>
         <LedgerTable year={yd} calc={calc} today={today} rows={ordered} editable={editable} onEditRow={(row) => setSheet({ row })} />
       </div>
-      <div className="md:hidden">
+      <div className={phoneGrid ? "hidden" : "md:hidden"}>
         <LedgerCards year={year} today={today} rows={ordered} editable={editable} onEditRow={(row) => setSheet({ row })} />
-        <MobileSummary calc={calc} initialMonth={defaultMonth} />
+        <MonthSummaryCard year={yd} calc={calc} initialMonth={defaultMonth} editable={editable} />
       </div>
 
       <RowSheet year={year} row={sheet?.row ?? null} open={Boolean(sheet)} onClose={() => setSheet(null)} canDelete={editable} />
@@ -192,24 +217,6 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
     <div className="min-w-0 px-3 py-3 sm:px-5">
       <dt className="truncate text-theme-xs text-gray-500 dark:text-gray-400">{label}</dt>
       <dd className="mt-0.5 truncate text-base font-semibold text-gray-800 sm:text-lg dark:text-white/90">{value}</dd>
-    </div>
-  );
-}
-
-function MobileSummary({ calc, initialMonth }: { calc: NonNullable<ReturnType<typeof useCalc>>["calc"][number]; initialMonth: number }) {
-  const [month, setMonth] = useState(initialMonth);
-  const m = calc.months[month - 1];
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur dark:border-gray-800 dark:bg-gray-900/95">
-      <div className="mx-auto flex max-w-xl items-center gap-3">
-        <select aria-label="เดือนที่สรุป" value={month} onChange={(e) => setMonth(Number(e.target.value))} className="app-input h-10 w-auto shrink-0 py-0 pe-7 text-theme-sm">
-          {Array.from({ length: 12 }, (_, i) => <option key={i} value={i + 1}>{monthName(i + 1)}</option>)}
-        </select>
-        <dl className="grid flex-1 grid-cols-2 gap-3 text-end">
-          <div><dt className="text-[11px] text-gray-500">รวม</dt><dd className="text-theme-sm font-semibold"><Baht value={m.income} /></dd></div>
-          <div><dt className="text-[11px] text-gray-500">รวม(หักแล้ว)</dt><dd className="text-theme-sm font-semibold"><Baht value={m.net} signColor /></dd></div>
-        </dl>
-      </div>
     </div>
   );
 }

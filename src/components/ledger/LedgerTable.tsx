@@ -51,8 +51,8 @@ const ITEMS: { kind: ItemKind; label: string }[] = [
   { kind: "collect", label: "เก็บเงิน" },
 ];
 
-const sticky1 = "sticky start-0 z-10 w-38 min-w-38 max-w-38";
-const sticky2 = "sticky start-38 z-10 w-28 min-w-28 max-w-28";
+const sticky1 = "sticky start-0 z-10 w-26 min-w-26 max-w-26 md:w-38 md:min-w-38 md:max-w-38";
+const sticky2 = "sticky start-26 z-10 w-22 min-w-22 max-w-22 md:start-38 md:w-28 md:min-w-28 md:max-w-28";
 
 export default function LedgerTable({ year, calc, today, rows, editable, onEditRow }: LedgerTableProps) {
   const { data } = useData();

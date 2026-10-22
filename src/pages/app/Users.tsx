@@ -127,7 +127,7 @@ export default function Users() {
             </div>
             <ul className="divide-y divide-gray-100 md:hidden dark:divide-gray-800">
               {users.map((u) => (
-                <li key={u.id}><button onClick={() => setSheet({ user: u })} className="flex w-full items-center gap-3 px-4 py-3.5 text-start"><UserAvatar id={u.id} name={fullName(u) || u.email} hasAvatar={u.hasAvatar} version={u.avatarVersion} size={40} /><span className="min-w-0 flex-1"><span className="block truncate text-base font-medium text-gray-800 dark:text-white/90">{fullName(u) || u.email}</span><span className="block truncate text-theme-xs text-gray-500">{u.email} · {ROLE_LABEL[u.role]}</span></span>{badge(u)}</button></li>
+                <li key={u.id}><button onClick={() => setSheet({ user: u })} className="flex w-full items-center gap-3 px-4 py-3.5 text-start"><UserAvatar id={u.id} name={fullName(u) || u.email} hasAvatar={u.hasAvatar} version={u.avatarVersion} size={40} /><span className="min-w-0 flex-1"><span className="block truncate text-base font-medium text-gray-800 dark:text-white/90">{fullName(u) || u.email}</span><span className="block truncate text-theme-xs text-gray-500">{u.email} · {ROLE_LABEL[u.role]}</span><span className="block truncate text-theme-xs text-gray-500">MFA {u.mfaEnabled ? "เปิด" : "ปิด"} · {u.lastLoginAt ? `เข้าใช้ล่าสุด ${relativeTime(u.lastLoginAt)}` : u.invitedAt ? `เชิญเมื่อ ${formatDateTime(u.invitedAt)}` : "ยังไม่เคยเข้าใช้"}</span></span>{badge(u)}</button></li>
               ))}
             </ul>
           </>

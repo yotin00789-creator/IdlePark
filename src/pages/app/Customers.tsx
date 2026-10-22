@@ -80,8 +80,9 @@ export default function Customers() {
               {rows.map(({ c, vehicles, monthly }) => (
                 <li key={c.id}>
                   <button onClick={() => setForm({ customer: c })} className="w-full px-4 py-3.5 text-start">
-                    <div className="flex items-center justify-between gap-3"><span className="text-base font-medium text-gray-800 dark:text-white/90">{c.name}</span><Baht value={monthly} dash={false} className="text-theme-sm" /></div>
-                    <span className="mt-1.5 flex flex-wrap gap-1">{vehicles.map((v) => <PlateChip key={v.id} plate={v.plate || "ไม่มีทะเบียน"} />)}</span>
+                    <div className="flex items-center justify-between gap-3"><span className={cn("text-base font-medium text-gray-800 dark:text-white/90", !c.isActive && "text-gray-500 line-through dark:text-gray-400")}>{c.name}</span><span className="text-theme-sm"><Baht value={monthly} dash={false} /> <span className="text-theme-xs text-gray-500 dark:text-gray-400">บาท/เดือน</span></span></div>
+                    {(c.phone || c.email) && <span className="mt-0.5 block truncate text-theme-xs text-gray-500 dark:text-gray-400">{[c.phone, c.email].filter(Boolean).join(" · ")}</span>}
+                    <span className="mt-1.5 flex flex-wrap gap-1">{vehicles.length ? vehicles.map((v) => <PlateChip key={v.id} plate={v.plate || "ไม่มีทะเบียน"} />) : <span className="text-theme-xs text-gray-500 dark:text-gray-400">ไม่มีรถในปีนี้</span>}</span>
                   </button>
                 </li>
               ))}

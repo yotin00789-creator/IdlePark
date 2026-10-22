@@ -156,8 +156,11 @@ export class LotScene {
   private events: LotEvents;
   private container: HTMLElement;
   private baseUrl: string;
+  private withCars = true; // the zone picker leaves the car models out: it only needs the lot
+  private padOverride: Record<string, [number, number]> | null = null;
 
-  constructor(container: HTMLElement, data: SlotsFile, events: LotEvents, baseUrl = "/3d") {
+  constructor(container: HTMLElement, data: SlotsFile, events: LotEvents, baseUrl = "/3d", opts: { cars?: boolean } = {}) {
+    this.withCars = opts.cars !== false;
     this.container = container;
     this.events = events;
     this.baseUrl = baseUrl;
@@ -244,7 +247,7 @@ export class LotScene {
         return res.arrayBuffer();
       };
       const parse = (buf: ArrayBuffer) => new Promise<THREE.Object3D>((res, rej) => loader.parse(buf, "", (g) => res(g.scene), rej));
-      const types = Object.keys(this.typeById);
+      const types = this.withCars ? Object.keys(this.typeById) : [];
       const [lot, ...cars] = await Promise.all([
         get(`${this.baseUrl}/lot.glb`).then(parse),
         ...types.map((t) => get(`${this.baseUrl}/cars/${t}.glb`).then(parse)),
@@ -295,7 +298,7 @@ export class LotScene {
     if (!pad) return;
     const mat = pad.material as THREE.MeshBasicMaterial;
     const tone = this.tones.get(id) ?? "empty";
-    const [color, opacity] = PAD_COLOR[tone === "empty" ? (this.zoneTone.get(id) ?? "empty") : tone];
+    const [color, opacity] = this.padOverride?.[id] ?? PAD_COLOR[tone === "empty" ? (this.zoneTone.get(id) ?? "empty") : tone];
     mat.color.setHex(color);
     mat.opacity = opacity;
     if (this.hover && this.slotOf(this.hover) === id) mat.opacity = Math.min(0.75, opacity + 0.25);
@@ -324,6 +327,16 @@ export class LotScene {
   setCars(list: CarInput[]) {
     this.pendingCars = list;
     if (Object.keys(this.templates).length) this.flushParked();
+  }
+
+  slotIds(): string[] {
+    return this.slots.map((sl) => sl.id);
+  }
+
+  /** Paint chosen slots in your own colour: { N01: [0xf2c200, 0.6] } (colour, opacity). null = back to the normal look. */
+  setPadOverride(map: Record<string, [number, number]> | null) {
+    this.padOverride = map;
+    for (const s of this.slots) this.paintPad(s.id);
   }
 
   /** Zones decide how an empty slot looks: closed (grey) or private (violet). */

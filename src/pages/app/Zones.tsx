@@ -14,10 +14,12 @@ import { parseBaht } from "@/lib/format";
 import { canEdit, useAuth } from "@/lib/session";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
-import { useMemo, useState } from "react";
+import { Suspense, lazy, useMemo, useState } from "react";
 import { currentFee } from "../../../shared/calc";
 import { SLOT_GROUPS, SLOT_IDS, baysIn, bayGrid, isMotorcycle, isStorageSlot, slotLabel, slotNumber } from "../../../shared/lot";
 import type { LedgerRow } from "../../../shared/types";
+
+const SlotPicker3D = lazy(() => import("@/components/lot3d/SlotPicker3D")); // three.js only loads when a zone is opened
 
 const slotShort = (id: string) => (isStorageSlot(id) ? "คลัง" : String(slotNumber(id)));
 
@@ -143,6 +145,7 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
   const ownerOf = (id: string) => zones.find((z) => z.id !== zone?.id && z.slotIds.includes(id));
   const holder = (id: string) => rows.find((r) => r.slotId === id && r.zoneId === zone?.id);
   const taking = slotIds.filter((id) => ownerOf(id));
+  const holders = useMemo(() => Object.fromEntries(rows.filter((r) => r.slotId).map((r) => [r.slotId as string, r.ownerName])), [rows]);
   const room = baysIn(slotIds);
   const count = zone ? rows.filter((r) => r.zoneId === zone.id).length : 0;
   const toggle = (id: string) => setSlotIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id].sort((a, b) => SLOT_IDS.indexOf(a as never) - SLOT_IDS.indexOf(b as never))));
@@ -219,9 +222,13 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
 
           <div>
             <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="text-theme-sm font-medium text-gray-700 dark:text-gray-300">ช่องจอดในโซนนี้</span>
+              <span className="text-theme-sm font-medium text-gray-700 dark:text-gray-300">ช่องจอดในโซนนี้ — กดช่องบนผังเพื่อเลือก/เอาออก</span>
               <span className="text-theme-xs text-gray-500 dark:text-gray-400">เลือกแล้ว {slotIds.length} ช่อง</span>
             </div>
+            <Suspense fallback={<div className="h-72 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />}>
+              <SlotPicker3D zones={zones} zoneId={zone?.id ?? null} selected={slotIds} disabled={!editable} onToggle={toggle} holders={holders} />
+            </Suspense>
+            <p className="mt-3 mb-1.5 text-theme-xs text-gray-500 dark:text-gray-400">หรือเลือกจากรายการ</p>
             <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
               {SLOT_GROUPS.map((g) => (
                 <div key={g.prefix} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
