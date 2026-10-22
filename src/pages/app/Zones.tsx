@@ -1,4 +1,3 @@
-import Baht from "@/components/app/Baht";
 import Button from "@/components/app/Button";
 import Card from "@/components/app/Card";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
@@ -14,7 +13,8 @@ import { canEdit, useAuth } from "@/lib/session";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
 import { Suspense, lazy, useMemo, useState } from "react";
-import { monthlyEquivalent } from "../../../shared/calc";
+import RentTotal from "@/components/app/RentTotal";
+import { rentTotals } from "../../../shared/calc";
 import { SLOT_GROUPS, SLOT_IDS, baysIn, bayGrid, isMotorcycle, isStorageSlot, slotLabel, slotNumber } from "../../../shared/lot";
 import type { LedgerRow } from "../../../shared/types";
 
@@ -39,13 +39,14 @@ export default function Zones() {
     return {
       count: mine.length,
       unplaced: motos ? 0 : mine.filter((r) => !r.slotId).length,
-      monthly: mine.reduce((n, r) => n + monthlyEquivalent(r, data.today), 0),
+      rent: rentTotals(mine, data.today),
       motos,
       used: z.motoCapacity ? motos : usedSlots,
       total: z.motoCapacity ? z.motoCapacity : slotCount || z.capacity || 0,
     };
   };
   const none = rows.filter((r) => r.zoneId == null);
+  const noneRent = rentTotals(none, data.today);
   const inZone = new Set(data.zones.flatMap((z) => z.slotIds));
   const free = SLOT_IDS.filter((id) => !inZone.has(id));
 
@@ -64,7 +65,7 @@ export default function Zones() {
           <div className="custom-scrollbar overflow-x-auto">
             <table className="w-full min-w-3xl">
               <thead><tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-white/3">
-                <th className="app-th">โซน</th><th className="app-th">ช่องจอด</th><th className="app-th text-end">ใช้อยู่ / ทั้งหมด</th><th className="app-th text-end">ว่าง</th><th className="app-th text-end">ค่าเช่า/เดือน</th><th className="app-th" />
+                <th className="app-th">โซน</th><th className="app-th">ช่องจอด</th><th className="app-th text-end">ใช้อยู่ / ทั้งหมด</th><th className="app-th text-end">ว่าง</th><th className="app-th text-end">ค่าเช่า</th><th className="app-th" />
               </tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {data.zones.map((z) => {
@@ -86,7 +87,7 @@ export default function Zones() {
                       </td>
                       <td className="app-td num text-end">{s.used}{s.total ? <span className="text-gray-500 dark:text-gray-400"> / {s.total}</span> : null}{s.unplaced > 0 && <span className="block text-theme-xs font-normal text-gray-500 dark:text-gray-400">อีก {s.unplaced} คันยังไม่ระบุช่อง</span>}</td>
                       <td className={cn("app-td num text-end", s.total && free === 0 ? "text-error-600 dark:text-error-500" : "")}>{s.total ? (z.isActive ? free : "—") : "—"}</td>
-                      <td className="app-td text-end"><Baht value={s.monthly} dash={false} /></td>
+                      <td className="app-td text-end"><RentTotal monthly={s.rent.monthly} yearly={s.rent.yearly} /></td>
                       <td className="app-td text-end"><button onClick={() => setForm({ zone: z })} className="text-theme-sm font-medium text-link">{editable ? "แก้ไข" : "ดู"}</button></td>
                     </tr>
                   );
@@ -97,7 +98,7 @@ export default function Zones() {
                       <span className="font-medium text-gray-700 dark:text-gray-300">ผู้เช่าที่ยังไม่ได้เลือกโซน ({none.length} ราย)</span>
                       <span className="block text-theme-xs text-gray-500 dark:text-gray-400">{none.map((r) => `${r.ownerName}${r.plate ? ` (${r.plate})` : ""}`).join(" · ")} — เปิดที่สมุดรายรับหรือผังที่จอด แล้วเลือกช่อง/โซนให้แถวนี้</span>
                     </td>
-                    <td className="app-td num text-end">{none.length}</td><td className="app-td text-end">—</td><td className="app-td text-end"><Baht value={none.reduce((n, r) => n + monthlyEquivalent(r, data.today), 0)} dash={false} /></td><td />
+                    <td className="app-td num text-end">{none.length}</td><td className="app-td text-end">—</td><td className="app-td text-end"><RentTotal monthly={noneRent.monthly} yearly={noneRent.yearly} /></td><td />
                   </tr>
                 )}
                 {free.length > 0 && (

@@ -172,9 +172,16 @@ export function currentFee(row: PricedRow & Pick<LedgerRow, "year">, today: { ye
   return priceAt(row, row.year < today.year ? 12 : row.year === today.year ? today.month : 1);
 }
 
-/** What the row brings in per month on average: its fee for a monthly row, a twelfth of it for a yearly one. */
-export const monthlyEquivalent = (row: PricedRow & Pick<LedgerRow, "year">, today: { year: number; month: number }) =>
-  isYearly(row) ? Math.round(currentFee(row, today) / 12) : currentFee(row, today);
+/** What a group of rows rents for: the monthly fees added up, and the yearly fees (the storage shed) added up separately. */
+export function rentTotals(rows: (PricedRow & Pick<LedgerRow, "year">)[], today: { year: number; month: number }): { monthly: number; yearly: number } {
+  let monthly = 0;
+  let yearly = 0;
+  for (const r of rows) {
+    if (isYearly(r)) yearly += currentFee(r, today);
+    else monthly += currentFee(r, today);
+  }
+  return { monthly, yearly };
+}
 
 /** Colour class of one month's cell: a yearly row is neutral in the months it owes nothing. */
 export function monthStatus(row: PricedRow, month: number, amount: number | null, isFuture: boolean): CellStatus {

@@ -1,5 +1,5 @@
-import { monthlyEquivalent } from "../../../shared/calc";
-import Baht from "@/components/app/Baht";
+import RentTotal from "@/components/app/RentTotal";
+import { rentTotals } from "../../../shared/calc";
 import Button from "@/components/app/Button";
 import Card from "@/components/app/Card";
 import EmptyState from "@/components/app/EmptyState";
@@ -30,7 +30,7 @@ export default function Customers() {
       .filter((c) => (scope === "all" || (c.isActive && thisYear.some((r) => r.customerId === c.id && r.kind !== "excluded"))) && (!term || `${c.name}${c.phone}${c.email}${thisYear.filter((r) => r.customerId === c.id).map((r) => r.plate).join("")}`.toLowerCase().replace(/\s+/g, "").includes(term)))
       .map((c) => {
         const vehicles = thisYear.filter((r) => r.customerId === c.id && r.kind !== "excluded");
-        return { c, vehicles, monthly: vehicles.filter((v) => v.isActive).reduce((n, v) => n + monthlyEquivalent(v, data.today), 0) };
+        return { c, vehicles, rent: rentTotals(vehicles.filter((v) => v.isActive), data.today) };
       });
   }, [data, q, scope, year]);
 
@@ -61,15 +61,15 @@ export default function Customers() {
             <div className="hidden md:block">
               <table className="w-full">
                 <thead><tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-white/3">
-                  <th className="app-th">ชื่อ</th><th className="app-th">ติดต่อ</th><th className="app-th">รถปี {year}</th><th className="app-th text-end">ค่าเช่า/เดือน</th><th className="app-th" />
+                  <th className="app-th">ชื่อ</th><th className="app-th">ติดต่อ</th><th className="app-th">รถปี {year}</th><th className="app-th text-end">ค่าเช่า</th><th className="app-th" />
                 </tr></thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {rows.map(({ c, vehicles, monthly }) => (
+                  {rows.map(({ c, vehicles, rent }) => (
                     <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-white/3">
                       <td className="app-td"><span className={cn("font-medium text-gray-800 dark:text-white/90", !c.isActive && "text-gray-500 dark:text-gray-400 line-through")}>{c.name}</span></td>
                       <td className="app-td text-theme-xs text-gray-500">{c.phone || "—"}{c.email && <><br />{c.email}</>}</td>
                       <td className="app-td"><span className="flex flex-wrap gap-1">{vehicles.length ? vehicles.map((v) => <PlateChip key={v.id} plate={v.plate || "ไม่มีทะเบียน"} />) : <span className="text-gray-500 dark:text-gray-400">ไม่มีในปีนี้</span>}</span></td>
-                      <td className="app-td text-end"><Baht value={monthly} dash={false} /></td>
+                      <td className="app-td text-end"><RentTotal monthly={rent.monthly} yearly={rent.yearly} /></td>
                       <td className="app-td text-end"><button onClick={() => setForm({ customer: c })} className="text-theme-sm font-medium text-link hover:text-link-hover">{editable ? "แก้ไข" : "ดู"}</button></td>
                     </tr>
                   ))}
@@ -77,10 +77,10 @@ export default function Customers() {
               </table>
             </div>
             <ul className="divide-y divide-gray-100 md:hidden dark:divide-gray-800">
-              {rows.map(({ c, vehicles, monthly }) => (
+              {rows.map(({ c, vehicles, rent }) => (
                 <li key={c.id}>
                   <button onClick={() => setForm({ customer: c })} className="w-full px-4 py-3.5 text-start">
-                    <div className="flex items-center justify-between gap-3"><span className={cn("text-base font-medium text-gray-800 dark:text-white/90", !c.isActive && "text-gray-500 line-through dark:text-gray-400")}>{c.name}</span><span className="text-theme-sm"><Baht value={monthly} dash={false} /> <span className="text-theme-xs text-gray-500 dark:text-gray-400">บาท/เดือน</span></span></div>
+                    <div className="flex items-center justify-between gap-3"><span className={cn("text-base font-medium text-gray-800 dark:text-white/90", !c.isActive && "text-gray-500 line-through dark:text-gray-400")}>{c.name}</span><RentTotal monthly={rent.monthly} yearly={rent.yearly} className="text-end text-theme-sm" /></div>
                     {(c.phone || c.email) && <span className="mt-0.5 block truncate text-theme-xs text-gray-500 dark:text-gray-400">{[c.phone, c.email].filter(Boolean).join(" · ")}</span>}
                     <span className="mt-1.5 flex flex-wrap gap-1">{vehicles.length ? vehicles.map((v) => <PlateChip key={v.id} plate={v.plate || "ไม่มีทะเบียน"} />) : <span className="text-theme-xs text-gray-500 dark:text-gray-400">ไม่มีรถในปีนี้</span>}</span>
                   </button>
