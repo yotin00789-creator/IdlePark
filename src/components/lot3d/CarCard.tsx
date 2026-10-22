@@ -251,7 +251,10 @@ function EmptySlot({ slot, data, unplaced, editable, onAdd, onAssign }: CarCardP
   const closed = zone && !zone.isActive;
   const rows = data.years.find((y) => y.year === data.today.year)?.rows ?? [];
   const motos = motoZone ? rows.filter((r) => r.zoneId === motoZone.id && r.isActive && r.kind !== "excluded" && r.vehicleType === "motorcycle").length : 0;
-  const [pick, setPick] = useState("");
+  const [q, setQ] = useState("");
+  const candidates = unplaced.filter((r) => r.vehicleType !== "motorcycle" && !isStorageSlot(r.slotId));
+  const term = q.trim().toLowerCase().replace(/\s+/g, "");
+  const shown = term ? candidates.filter((r) => `${r.ownerName}${r.plate}`.toLowerCase().replace(/\s+/g, "").includes(term)) : candidates;
   return (
     <div className="space-y-4 px-4 pt-3 pb-4">
       <div className={cn("space-y-1 rounded-lg px-3 py-3 text-theme-sm", closed ? "bg-gray-100 text-gray-700 dark:bg-white/8 dark:text-gray-300" : zone?.access === "private" ? "bg-violet-50 text-violet-800 dark:bg-violet-500/10 dark:text-violet-300" : "bg-gray-50 text-gray-600 dark:bg-white/5 dark:text-gray-300")}>
@@ -272,20 +275,38 @@ function EmptySlot({ slot, data, unplaced, editable, onAdd, onAssign }: CarCardP
         <>
           {motoZone ? (
             <Button className="w-full" icon={<PlusGlyph />} disabled={motos >= motoZone.motoCapacity} onClick={() => onAdd(slot.id, motoZone.id)}>{motos >= motoZone.motoCapacity ? "โซนนี้เต็มแล้ว" : "เพิ่มมอเตอร์ไซค์"}</Button>
+          ) : storage ? (
+            <Button className="w-full" icon={<PlusGlyph />} onClick={() => onAdd(slot.id)}>เพิ่มผู้เช่าคลังเก็บของ</Button>
           ) : (
-            <Button className="w-full" icon={<PlusGlyph />} onClick={() => onAdd(slot.id)}>{storage ? "เพิ่มผู้เช่าคลังเก็บของ" : "เพิ่มรถใหม่ในช่องนี้"}</Button>
-          )}
-          {unplaced.length > 0 && !motoZone && (
-            <div>
-              <label htmlFor="assign-row" className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">หรือเลือกรถที่ยังไม่ระบุช่อง</label>
-              <div className="flex gap-2">
-                <select id="assign-row" value={pick} onChange={(e) => setPick(e.target.value)} className="app-input min-w-0 flex-1">
-                  <option value="">เลือกรถ…</option>
-                  {unplaced.filter((r) => r.vehicleType !== "motorcycle").map((r) => <option key={r.id} value={r.id}>{r.ownerName}{r.plate ? ` · ${r.plate}` : ""}</option>)}
-                </select>
-                <Button variant="outline" disabled={!pick} onClick={() => onAssign(Number(pick), slot.id)}>ใช้ช่องนี้</Button>
+            <>
+              <section aria-label="เลือกรถที่มีในสมุดรายรับ">
+                <h3 className="text-theme-sm font-semibold text-gray-800 dark:text-white/90">เลือกรถที่จอดช่องนี้</h3>
+                <p className="mb-2 text-theme-xs text-gray-500 dark:text-gray-400">รถที่มีในสมุดรายรับแล้วแต่ยังไม่ลงช่อง ยอดชำระเดิมจะอยู่ครบ และสถานะตรงกับในสมุด</p>
+                {candidates.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-gray-200 px-3 py-3 text-theme-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">รถทุกคันในสมุดรายรับมีช่องแล้ว ถ้าจะย้ายรถคันไหน เปิดที่คันนั้นแล้วกด “แก้ไขรถ” เปลี่ยนช่อง</p>
+                ) : (
+                  <>
+                    {candidates.length > 6 && <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาชื่อหรือทะเบียน" aria-label="ค้นหารถ" className="app-input mb-2" />}
+                    <ul className="custom-scrollbar max-h-56 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
+                      {shown.map((r) => (
+                        <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-theme-sm font-medium text-gray-800 dark:text-white/90">{r.plate || "ไม่มีทะเบียน"} <span className="font-normal text-gray-500 dark:text-gray-400">· {r.ownerName}</span></span>
+                            <span className="block truncate text-theme-xs text-gray-500 dark:text-gray-400">{r.vehicleType ? vehicleLabel(r.vehicleType) : "ไม่ระบุประเภท"}</span>
+                          </span>
+                          <Button size="sm" variant="outline" onClick={() => onAssign(r.id, slot.id)}>ใช้ช่องนี้</Button>
+                        </li>
+                      ))}
+                      {shown.length === 0 && <li className="px-3 py-3 text-theme-xs text-gray-500 dark:text-gray-400">ไม่พบรถที่ตรงกับคำค้น</li>}
+                    </ul>
+                  </>
+                )}
+              </section>
+              <div>
+                <Button variant="outline" className="w-full" icon={<PlusGlyph />} onClick={() => onAdd(slot.id)}>เพิ่มรถใหม่ที่ยังไม่มีในสมุด</Button>
+                <p className="mt-1.5 text-theme-xs text-gray-500 dark:text-gray-400">ถ้ารถคันนี้มีอยู่ในสมุดแล้ว ให้เลือกจากรายการด้านบน การเพิ่มซ้ำจะเริ่มต้นใหม่โดยไม่มียอดชำระเดิม</p>
               </div>
-            </div>
+            </>
           )}
         </>
       ) : (

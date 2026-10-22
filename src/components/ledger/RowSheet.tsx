@@ -48,7 +48,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
   const [fee, setFee] = useState(formatBaht(startFee).replace(/,/g, ""));
   const [feeFrom, setFeeFrom] = useState(String(row && data && row.year === data.today.year ? data.today.month : 1)); // the month a new price starts
   const [kind, setKind] = useState<RowKind>(row?.kind ?? "normal");
-  const [startMonth, setStartMonth] = useState(String(row?.startMonth ?? 1));
+  const [startMonth, setStartMonth] = useState(String(row?.startMonth ?? (data && year === data.today.year ? data.today.month : 1))); // a new tenant starts this month, so nothing before it is flagged unpaid
   const [endMonth, setEndMonth] = useState(String(row?.endMonth ?? ""));
   const [ptYear, setPtYear] = useState(String(row?.paidThroughYear ?? ""));
   const [ptMonth, setPtMonth] = useState(String(row?.paidThroughMonth ?? ""));
@@ -63,10 +63,14 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
 
   // the customer's vehicles that are not on the map yet: pick one of them instead of creating a duplicate
   const sameCustomer = data.customers.find((c) => c.name === name.trim());
-  const waiting = row || !sameCustomer ? [] : (data.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.customerId === sameCustomer.id && r.isActive && r.kind !== "excluded" && !r.slotId);
+  const plateKey = plate.replace(/\s+/g, "").toUpperCase();
+  const waiting = row ? [] : (data.years.find((y) => y.year === year)?.rows ?? []).filter(
+    (r) => r.isActive && r.kind !== "excluded" && !r.slotId && ((sameCustomer && r.customerId === sameCustomer.id) || (plateKey && r.plate.replace(/\s+/g, "").toUpperCase() === plateKey)),
+  );
   const adopt = (r: LedgerRow | null) => {
     setAdoptId(r?.id ?? null);
     if (!r) return;
+    setName(r.ownerName);
     setPlate(r.plate);
     setFee(formatBaht(currentFee(r, data.today)).replace(/,/g, ""));
     setStartMonth(String(r.startMonth));
@@ -178,17 +182,17 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
         <ComboField label="ชื่อผู้เช่า" value={name} onChange={(v) => { setName(v); setAdoptId(null); }} options={nameOptions} placeholder="เลือกลูกค้าเดิมหรือพิมพ์ชื่อใหม่" newHint={(v) => `ไม่มีลูกค้าชื่อ “${v}” ระบบจะเพิ่มเป็นลูกค้าใหม่`} />
         {waiting.length > 0 && (
           <div className="rounded-lg border border-gold-300 bg-gold-50/60 p-3 dark:border-gold-500/40 dark:bg-gold-500/10">
-            <p className="mb-2 text-theme-sm font-medium text-gray-800 dark:text-white/90">{sameCustomer?.name} มีรถที่ยังไม่ได้ลงช่อง เลือกคันที่จะจอดช่องนี้</p>
+            <p className="mb-2 text-theme-sm font-medium text-gray-800 dark:text-white/90">มีรถในสมุดรายรับที่ตรงกับที่กรอก เลือกคันที่จะจอดช่องนี้ เพื่อให้ยอดชำระเดิมไม่หาย</p>
             <div role="radiogroup" aria-label="เลือกรถของลูกค้า" className="space-y-1.5">
               {waiting.map((r) => (
                 <button key={r.id} type="button" role="radio" aria-checked={adoptId === r.id} onClick={() => adopt(r)} className={cn("flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2 text-start dark:bg-gray-900", adoptId === r.id ? "border-brand-500 ring-2 ring-gold-300/60" : "border-gray-200 dark:border-gray-700")}>
-                  <span className="font-medium text-gray-800 dark:text-white/90">{r.plate || "ไม่มีทะเบียน"}</span>
+                  <span className="font-medium text-gray-800 dark:text-white/90">{r.plate || "ไม่มีทะเบียน"} <span className="font-normal text-gray-500 dark:text-gray-400">· {r.ownerName}</span></span>
                   <span className="text-theme-xs text-gray-500 dark:text-gray-400">{r.vehicleType ? vehicleLabel(r.vehicleType) : "ไม่ระบุประเภท"} · ยังไม่ระบุช่อง</span>
                 </button>
               ))}
-              <button type="button" role="radio" aria-checked={adoptId == null} onClick={() => { setAdoptId(null); setPlate(""); }} className={cn("flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2 text-start dark:bg-gray-900", adoptId == null ? "border-brand-500 ring-2 ring-gold-300/60" : "border-gray-200 dark:border-gray-700")}>
+              <button type="button" role="radio" aria-checked={adoptId == null} onClick={() => { setAdoptId(null); }} className={cn("flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2 text-start dark:bg-gray-900", adoptId == null ? "border-brand-500 ring-2 ring-gold-300/60" : "border-gray-200 dark:border-gray-700")}>
                 <span className="font-medium text-gray-800 dark:text-white/90">+ รถคันใหม่</span>
-                <span className="text-theme-xs text-gray-500 dark:text-gray-400">เพิ่มเป็นรถอีกคันของลูกค้า</span>
+                <span className="text-theme-xs text-gray-500 dark:text-gray-400">ไม่ใช่คันข้างบน · เริ่มต้นเดือนนี้ ยังไม่มียอดชำระ</span>
               </button>
             </div>
           </div>

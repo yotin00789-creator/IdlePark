@@ -17,7 +17,11 @@ export interface ReminderSettings {
 export interface AppSettings {
   monthlyFeeDefault: number; // satang
   reminders: ReminderSettings;
+  menu: { hidden: string[] }; // sidebar entries (their paths) the admin chose to hide for everyone
 }
+
+/** Entries that can never be hidden, so the settings page (where they come back) is always reachable. */
+export const MENU_LOCKED = ["/settings", "/profile/security"];
 
 export const DEFAULT_SETTINGS: AppSettings = {
   monthlyFeeDefault: 120000,
@@ -33,6 +37,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     email: true,
     bell: true,
   },
+  menu: { hidden: [] },
 };
 
 export async function getSettings(q: Queryable): Promise<AppSettings> {
@@ -41,6 +46,7 @@ export async function getSettings(q: Queryable): Promise<AppSettings> {
   return {
     monthlyFeeDefault: map.monthlyFeeDefault ?? DEFAULT_SETTINGS.monthlyFeeDefault,
     reminders: { ...DEFAULT_SETTINGS.reminders, ...(map.reminders ?? {}) },
+    menu: { hidden: sanitizeMenu(map.menu?.hidden) },
   };
 }
 
@@ -68,4 +74,9 @@ export function sanitizeReminders(input: any): ReminderSettings {
     email: typeof input?.email === "boolean" ? input.email : d.email,
     bell: typeof input?.bell === "boolean" ? input.bell : d.bell,
   };
+}
+
+export function sanitizeMenu(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return [...new Set(input.filter((p): p is string => typeof p === "string" && /^\/[a-z-]*(\/[a-z-]+)?$/.test(p) && !MENU_LOCKED.includes(p)))];
 }

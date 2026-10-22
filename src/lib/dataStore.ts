@@ -58,7 +58,7 @@ export interface AppData {
   customers: Customer[];
   zones: Zone[];
   accounts: Account[];
-  settings: { monthlyFeeDefault: number; reminders: ReminderSettings };
+  settings: { monthlyFeeDefault: number; reminders: ReminderSettings; menu: { hidden: string[] } };
   lastReminderAt: string | null;
 }
 

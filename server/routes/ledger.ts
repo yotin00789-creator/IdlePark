@@ -1,13 +1,13 @@
 import { audit } from "../audit.js";
 import { feeFor } from "../../shared/calc.js";
 import { THAI_MONTHS, bangkokToday } from "../../shared/thai.js";
-import { getSettings, sanitizeReminders, setSetting } from "../settings.js";
+import { getSettings, sanitizeMenu, sanitizeReminders, setSetting } from "../settings.js";
 import { decrypt, encrypt } from "../crypto.js";
 import { loadSavings, loadYears, rowFromDb } from "../data.js";
 import type { Queryable } from "../db.js";
 import { HttpError, intOrNull, route, str } from "../http.js";
 import { resolvePlacement } from "../placement.js";
-import { baysIn, isHexColor, isMotorcycle, isSlotId, isVehicleType, slotLabel } from "../../shared/lot.js";
+import { baysIn, isHexColor, isMotorcycle, isSlotId, isStorageSlot, isVehicleType, slotLabel } from "../../shared/lot.js";
 
 const EDIT = ["admin", "editor"] as const;
 const ADMIN = ["admin"] as const;
@@ -179,8 +179,20 @@ async function ensureCustomer(q: Queryable, name: string): Promise<number> {
 }
 
 /** Insert one ledger row after the placement rules agree; shared by the ledger form and add-customer. */
+/** The same plate twice in one year is almost always the same car added twice (which would start it with no payments). */
+async function refuseDuplicatePlate(q: Queryable, year: number, plate: string, slotId: string | null) {
+  const norm = plate.replace(/\s+/g, "").toUpperCase();
+  if (!norm || isStorageSlot(slotId)) return;
+  const [dup] = await q.query(
+    "select id, owner_name, slot_id from ledger_rows where year = $1 and replace(upper(plate), ' ', '') = $2 and kind <> 'excluded' limit 1",
+    [year, norm],
+  );
+  if (dup) throw new HttpError(409, `ทะเบียน ${plate} มีอยู่แล้วในสมุดรายรับปี ${year} (${dup.owner_name}${dup.slot_id ? ` · ${slotLabel(dup.slot_id)}` : " · ยังไม่ระบุช่อง"}) เลือกรถคันเดิมแทนการเพิ่มใหม่ เพื่อไม่ให้ยอดชำระเดิมหาย`);
+}
+
 async function insertRow(q: Queryable, f: { year: number; customerId: number; ownerName: string; plate: string; zoneId: number | null; kind: string; bulkCount: number; fee: number; startMonth: number; note: string; body: any }) {
   const lot = lotFields(f.body);
+  await refuseDuplicatePlate(q, f.year, f.plate, lot.slot_id);
   const place = await resolvePlacement(q, {
     year: f.year, rowId: null, vehicleType: lot.vehicle_type, zoneId: f.zoneId, slotId: lot.slot_id,
     bay: f.body.bay == null ? null : Number(f.body.bay), startMonth: f.startMonth, endMonth: null, counts: f.kind === "normal",
@@ -354,6 +366,57 @@ route("DELETE", "/ledger/rows/:id", EDIT as any, async (c) => {
     }, q);
   });
   return { ok: true, restorable: true, auditId };
+});
+
+/**
+ * A vehicle that was added again by mistake (so it starts with no payments) is folded into the one already in the ledger:
+ * the map details (slot, type, colour, province) move to the original, which keeps all its payments, and the extra row
+ * is deleted (a full copy stays in the history, so it can be undone).
+ */
+route("POST", "/ledger/rows/:id/merge", EDIT as any, async (c) => {
+  const id = Number(c.params.id);
+  const b = await c.json();
+  const targetId = Number(b.targetId);
+  if (!targetId || targetId === id) throw new HttpError(400, "เลือกรถคันเดิมที่จะรวมเข้าด้วย");
+  const [src] = await c.db.query("select * from ledger_rows where id = $1", [id]);
+  const [dst] = await c.db.query("select * from ledger_rows where id = $1", [targetId]);
+  if (!src || !dst) throw new HttpError(404, "ไม่พบแถว");
+  if (src.year !== dst.year) throw new HttpError(400, "รวมได้เฉพาะแถวของปีเดียวกัน");
+  if (src.customer_id == null || src.customer_id !== dst.customer_id) throw new HttpError(400, "รวมได้เฉพาะรถของลูกค้าคนเดียวกัน");
+  const pays = await c.db.query("select month, amount, method, account_id, updated_at, updated_by from payments where row_id = $1 order by month", [id]);
+  if (pays.some((p) => (p.amount ?? 0) > 0)) throw new HttpError(409, "แถวนี้มียอดชำระแล้ว รวมเข้ากับคันอื่นไม่ได้ ลบหรือแก้ที่แถวนี้เอง");
+  const result = await c.db.tx(async (q) => {
+    // the extra row lets go of its slot first, so the original can take it
+    await q.query("update ledger_rows set slot_id = null, bay = null where id = $1", [id]);
+    const lot = {
+      slot_id: src.slot_id ?? dst.slot_id,
+      vehicle_type: src.vehicle_type ?? dst.vehicle_type,
+      car_color: src.car_color ?? dst.car_color,
+      plate_province: src.plate_province || dst.plate_province,
+      zone_id: dst.zone_id ?? src.zone_id,
+      due_day: dst.due_day ?? src.due_day,
+      plate: dst.plate || src.plate,
+    };
+    const place = await resolvePlacement(q, {
+      year: dst.year, rowId: dst.id, vehicleType: lot.vehicle_type, zoneId: lot.slot_id === dst.slot_id ? dst.zone_id : null, slotId: lot.slot_id,
+      bay: src.slot_id ? src.bay : dst.bay, startMonth: dst.start_month, endMonth: dst.end_month, counts: dst.is_active && dst.kind === "normal", cur: dst as any,
+    });
+    await q.query(
+      "update ledger_rows set slot_id=$2, zone_id=$3, bay=$4, vehicle_type=$5, car_color=$6, plate_province=$7, due_day=$8, plate=$9 where id=$1",
+      [dst.id, place.slot_id, place.zone_id ?? lot.zone_id, place.bay, lot.vehicle_type, lot.car_color, lot.plate_province, lot.due_day, lot.plate],
+    );
+    await q.query("delete from ledger_rows where id = $1", [id]);
+    const auditId = await audit(c, {
+      action: "row.delete",
+      entity: "ledger_row",
+      entityId: id,
+      summary: `รวมแถว ${src.owner_name}${src.plate ? ` (${src.plate})` : ""} เข้ากับ ${dst.owner_name}${lot.plate ? ` (${lot.plate})` : ""} ปี ${src.year}${place.slot_id ? ` · ช่อง ${place.slot_id}` : ""}`,
+      before: { ownerName: src.owner_name, plate: src.plate, slotId: src.slot_id, snapshot: { row: src, payments: pays } },
+    }, q);
+    const [row] = await q.query("select * from ledger_rows where id = $1", [dst.id]);
+    return { row, auditId };
+  });
+  return { row: rowFromDb(result.row), auditId: result.auditId };
 });
 
 route("POST", "/ledger/years/:year/copy-previous", EDIT as any, async (c) => {
@@ -739,6 +802,10 @@ route("PUT", "/settings", ADMIN as any, async (c) => {
   if (b.reminders !== undefined) {
     after.reminders = sanitizeReminders(b.reminders);
     await setSetting(c.db, "reminders", after.reminders);
+  }
+  if (b.menu !== undefined) {
+    after.menu = { hidden: sanitizeMenu(b.menu?.hidden) };
+    await setSetting(c.db, "menu", after.menu);
   }
   await audit(c, { action: "settings.update", entity: "settings", summary: "แก้ไขการตั้งค่าระบบ/การแจ้งเตือน", before, after });
   return { settings: after };

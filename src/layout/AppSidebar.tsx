@@ -1,56 +1,18 @@
 import BrandLogo from "@/components/common/BrandLogo";
 import { useSidebar } from "@/context/SidebarContext";
-import {
-  BankGlyph,
-  CarSideGlyph,
-  ChartGlyph,
-  CubeGlyph,
-  FileTextGlyph,
-  DashboardGlyph,
-  HistoryGlyph,
-  LedgerGlyph,
-  MapPinGlyph,
-  ReceiptGlyph,
-  SlidersGlyph,
-  UsersGlyph,
-  WalletGlyph,
-  ShieldCheckGlyph,
-} from "@/icons";
+import { useData } from "@/lib/dataStore";
+import { MAIN_NAV, SYSTEM_NAV, type NavItem } from "@/lib/nav";
 import { isAdmin, useAuth } from "@/lib/session";
 import { cn } from "@/utils";
-import { useEffect, type ComponentType, type SVGProps } from "react";
+import { useEffect } from "react";
 import { Link, useLocation } from "react-router";
-
-interface NavItem {
-  to: string;
-  label: string;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  adminOnly?: boolean;
-}
-
-const MAIN: NavItem[] = [
-  { to: "/", label: "แดชบอร์ด", icon: DashboardGlyph },
-  { to: "/lot", label: "ผังที่จอด 3 มิติ", icon: CubeGlyph },
-  { to: "/ledger", label: "สมุดรายรับ", icon: LedgerGlyph },
-  { to: "/summary", label: "สรุปรายปี", icon: ChartGlyph },
-  { to: "/reports", label: "รายงาน PDF", icon: FileTextGlyph },
-  { to: "/customers", label: "ลูกค้าและรถ", icon: CarSideGlyph },
-  { to: "/zones", label: "โซนที่จอด", icon: MapPinGlyph },
-  { to: "/savings", label: "เงินเก็บพ่อ", icon: WalletGlyph },
-  { to: "/accounts", label: "บัญชีรับเงิน", icon: BankGlyph },
-];
-const SYSTEM: NavItem[] = [
-  { to: "/formula-audit", label: "ตรวจสอบสูตร", icon: ReceiptGlyph },
-  { to: "/audit", label: "ประวัติการใช้งาน", icon: HistoryGlyph, adminOnly: true },
-  { to: "/users", label: "ผู้ใช้งาน", icon: UsersGlyph, adminOnly: true },
-  { to: "/settings", label: "ตั้งค่าและแจ้งเตือน", icon: SlidersGlyph, adminOnly: true },
-  { to: "/profile/security", label: "ความปลอดภัยของบัญชี", icon: ShieldCheckGlyph },
-];
 
 export default function AppSidebar() {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered, setIsMobileOpen } = useSidebar();
   const { pathname } = useLocation();
   const { user } = useAuth();
+  const { data } = useData();
+  const hidden = new Set(data?.settings.menu?.hidden ?? []);
   const wide = isExpanded || isHovered || isMobileOpen;
 
   useEffect(() => {
@@ -63,7 +25,7 @@ export default function AppSidebar() {
   const render = (items: NavItem[]) => (
     <ul className="flex flex-col gap-0.5">
       {items
-        .filter((i) => !i.adminOnly || isAdmin(user))
+        .filter((i) => (!i.adminOnly || isAdmin(user)) && !hidden.has(i.to))
         .map(({ to, label, icon: Icon }) => (
           <li key={to}>
             <Link
@@ -99,11 +61,11 @@ export default function AppSidebar() {
       <nav className="no-scrollbar flex flex-1 flex-col gap-6 overflow-y-auto pb-6" aria-label="เมนูหลัก">
         <div>
           <h2 className={cn("overflow-hidden px-3 text-theme-xs font-medium whitespace-nowrap text-gray-500 transition-[opacity,max-height,margin] duration-150 dark:text-gray-400", wide ? "mb-2 max-h-5 opacity-100" : "mb-0 max-h-0 opacity-0")}>เมนู</h2>
-          {render(MAIN)}
+          {render(MAIN_NAV)}
         </div>
         <div>
           <h2 className={cn("overflow-hidden px-3 text-theme-xs font-medium whitespace-nowrap text-gray-500 transition-[opacity,max-height,margin] duration-150 dark:text-gray-400", wide ? "mb-2 max-h-5 opacity-100" : "mb-0 max-h-0 opacity-0")}>ระบบ</h2>
-          {render(SYSTEM)}
+          {render(SYSTEM_NAV)}
         </div>
       </nav>
     </aside>

@@ -3,7 +3,8 @@ import { bayGrid, baysIn, bayOffset } from "../shared/lot.js";
 import { Client, freshApp, setupAdmin } from "./helpers.js";
 
 const YEAR = 2569;
-const row = (over: object = {}) => ({ year: YEAR, ownerName: "ผู้เช่า", plate: "1กข 1", monthlyFee: 120000, startMonth: 1, ...over });
+let plateSeq = 0; // every test car gets its own plate (the same plate twice in a year is refused)
+const row = (over: object = {}) => ({ year: YEAR, ownerName: "ผู้เช่า", plate: `ท${++plateSeq} ${1000 + plateSeq}`, monthlyFee: 120000, startMonth: 1, ...over });
 
 describe("zones, slots and motorcycles", () => {
   let admin: Client;

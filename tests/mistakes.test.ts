@@ -89,4 +89,19 @@ describe("fixing a vehicle that was added wrongly", () => {
     expect((await admin.patch(`/ledger/rows/${a.id}`, { slotId: "E03", swap: true })).status).toBe(409);
     expect((await row(other.id)).slotId).toBe("E03");
   });
+
+  it("adding the same car twice is refused (it would start with no payments); a new car starts this month, not in January", async () => {
+    const existing = (await admin.post("/ledger/rows", { year, ownerName: "มีอยู่แล้ว", plate: "9ผผ 99" })).json.row;
+    await admin.put("/ledger/payments", { changes: [{ rowId: existing.id, month: 1, amount: 120000 }] });
+    const dup = await admin.post("/ledger/rows", { year, ownerName: "มีอยู่แล้ว", plate: "9ผผ  99", slotId: "H01", vehicleType: "sedan" });
+    expect(dup.status).toBe(409);
+    expect(dup.json.error).toContain("มีอยู่แล้วในสมุดรายรับ");
+    expect((await data()).years.find((y: any) => y.year === year).rows.filter((r: any) => r.plate.replace(/\s/g, "") === "9ผผ99")).toHaveLength(1);
+    // the way to put the existing car on the map keeps its payments
+    const placed = await admin.patch(`/ledger/rows/${existing.id}`, { slotId: "H01", vehicleType: "sedan" });
+    expect(placed.json.row.slotId).toBe("H01");
+    expect((await row(existing.id)).payments[0]).toBe(120000);
+    // the storage shed uses a label instead of a plate and is exempt
+    expect((await admin.post("/ledger/rows", { year, ownerName: "คลังหนึ่ง", plate: "คลังเก็บของ", slotId: "K01", monthlyFee: 100000 })).status).toBe(200);
+  });
 });

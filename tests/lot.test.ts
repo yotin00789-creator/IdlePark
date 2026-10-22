@@ -3,7 +3,8 @@ import { SLOT_IDS, VEHICLE_TYPES, slotLabel, slotNumber } from "../shared/lot.js
 import { Client, acceptInvite, freshApp, setupAdmin } from "./helpers.js";
 
 const YEAR = 2569;
-const car = (over: object = {}) => ({ year: YEAR, ownerName: "ผู้เช่าทดสอบ", plate: "1กข 1234", monthlyFee: 120000, startMonth: 1, ...over });
+let plateSeq = 0; // every test car gets its own plate (the same plate twice in a year is refused)
+const car = (over: object = {}) => ({ year: YEAR, ownerName: "ผู้เช่าทดสอบ", plate: `ท${++plateSeq} ${1000 + plateSeq}`, monthlyFee: 120000, startMonth: 1, ...over });
 
 describe("3D lot: slots and vehicles on ledger rows", () => {
   let admin: Client;

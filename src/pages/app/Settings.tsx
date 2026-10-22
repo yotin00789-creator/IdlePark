@@ -12,6 +12,7 @@ import BackupCard from "@/components/settings/BackupCard";
 import DbStatusCard from "@/components/settings/DbStatusCard";
 import TimeField from "@/components/app/TimeField";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
+import { MAIN_NAV, NAV_LOCKED, SYSTEM_NAV } from "@/lib/nav";
 import { useCallback, useEffect, useState } from "react";
 
 interface Status {
@@ -37,6 +38,7 @@ function SettingsForm({ data }: { data: AppData }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [saving, setSaving] = useState(false);
   const [resetAsk, setResetAsk] = useState(false);
+  const [hidden, setHidden] = useState<string[]>(data.settings.menu?.hidden ?? []);
   const [running, setRunning] = useState(false);
 
   const loadStatus = useCallback(() => api.get<Status>("/reminders/status").then(setStatus).catch(() => {}), []);
@@ -53,7 +55,7 @@ function SettingsForm({ data }: { data: AppData }) {
     if (f === "invalid" || f == null || f <= 0) return toast.error("ค่าเช่าเริ่มต้นต้องเป็นตัวเลขมากกว่า 0");
     setSaving(true);
     try {
-      await api.put("/settings", { monthlyFeeDefault: f, reminders: { ...r, maxRounds: unlimited ? 0 : Math.max(1, r.maxRounds) } });
+      await api.put("/settings", { monthlyFeeDefault: f, reminders: { ...r, maxRounds: unlimited ? 0 : Math.max(1, r.maxRounds) }, menu: { hidden } });
       await dataStore.load(true);
       await loadStatus();
       toast.success("บันทึกการตั้งค่าแล้ว");
@@ -112,6 +114,32 @@ function SettingsForm({ data }: { data: AppData }) {
 
           <BackupCard />
 
+          <Card title="เมนูที่แสดง" description="เลือกเมนูที่จะซ่อนจากแถบเมนูด้านข้าง มีผลกับผู้ใช้ทุกคน (ซ่อนแล้วยังเปิดได้ถ้ามีลิงก์ตรง) กด “บันทึกการตั้งค่า” เพื่อใช้">
+            <div className="space-y-5">
+              {([["เมนูหลัก", MAIN_NAV], ["ระบบ", SYSTEM_NAV]] as const).map(([group, items]) => (
+                <div key={group}>
+                  <p className="mb-2 text-theme-xs font-medium text-gray-500 dark:text-gray-400">{group}</p>
+                  <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
+                    {items.map(({ to, label, icon: Icon }) => {
+                      const locked = NAV_LOCKED.includes(to);
+                      const shown = !hidden.includes(to);
+                      return (
+                        <li key={to} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                          <span className="flex min-w-0 items-center gap-2.5 text-theme-sm text-gray-800 dark:text-white/90"><Icon className="size-[18px] shrink-0 text-gray-500 dark:text-gray-400" /><span className="truncate">{label}</span></span>
+                          {locked ? (
+                            <span className="shrink-0 text-theme-xs text-gray-500 dark:text-gray-400">แสดงเสมอ</span>
+                          ) : (
+                            <Toggle checked={shown} onChange={(v) => setHidden((h) => (v ? h.filter((x) => x !== to) : [...h, to]))} label={shown ? "แสดง" : "ซ่อน"} />
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+              {hidden.length > 0 && <button type="button" onClick={() => setHidden([])} className="text-theme-sm font-medium text-link">แสดงทุกเมนู</button>}
+            </div>
+          </Card>
           <Card title="ค่าเริ่มต้น">
             <TextField label="ค่าเช่าต่อคันต่อเดือน (บาท)" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} wrapperClassName="max-w-xs" hint="ใช้กับผู้เช่าที่เพิ่มใหม่ ผู้เช่าเดิมแก้ค่าเช่ารายคนได้ในสมุดรายรับ" />
           </Card>
