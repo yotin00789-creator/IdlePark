@@ -287,11 +287,12 @@ export class LotScene {
   // -------------------------------------------------------------------- pads
 
   private makePad(s: SlotDef) {
-    const geo = new THREE.PlaneGeometry(s.size.width_m - 0.12, s.size.length_m - 0.12);
+    const grow = this.padGrow(s);
+    const geo = new THREE.PlaneGeometry(s.size.width_m - 0.12 + grow, s.size.length_m - 0.12 + grow);
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.1, depthWrite: false });
     const m = new THREE.Mesh(geo, mat);
-    m.position.set(s.center_gltf.x, this.padY(s), s.center_gltf.z);
+    m.position.set(s.center_gltf.x, this.padY(), s.center_gltf.z);
     m.rotation.y = s.rotation_y_rad_threejs;
     m.userData.slotId = s.id;
     m.renderOrder = 2;
@@ -308,11 +309,10 @@ export class LotScene {
     return this.extraSheds.get(s.id)?.height ?? 0;
   }
   private isShed = (id: string) => this.slotById[id]?.kind === "storage" || this.extraSheds.has(id);
-  // the built-in shed fills its slot, so its status plane lies on the roof; a copied shed is smaller than its slot,
-  // so the status colour stays on the ground around it like any parking space
-  private padY(s: SlotDef) {
-    return s.kind === "storage" ? this.shedHeight(s) + 0.06 : 0.03;
-  }
+  // the status colour always lies on the ground. The built-in shed fills its slot, so its plane is made wider than the
+  // slot to leave a green/red/amber border visible all around the shed; a copied shed is smaller than its slot anyway
+  private padGrow = (s: SlotDef) => (s.kind === "storage" ? 1.4 : 0);
+  private padY = () => 0.03;
 
   /**
    * Every slot of a storage zone shows the storage shed: the model that is built into the lot (the dark grey box) is
@@ -347,7 +347,7 @@ export class LotScene {
     }
     for (const s of this.slots) {
       const pad = this.pads.get(s.id);
-      if (pad) pad.position.y = this.padY(s);
+      if (pad) pad.position.y = this.padY();
     }
     this.placeOutline();
     this.dirty = true;
@@ -374,9 +374,10 @@ export class LotScene {
       return;
     }
     this.outline.visible = true;
-    this.outline.position.set(s.center_gltf.x, this.padY(s) + 0.02, s.center_gltf.z);
+    this.outline.position.set(s.center_gltf.x, this.padY() + 0.02, s.center_gltf.z);
     this.outline.rotation.y = s.rotation_y_rad_threejs;
-    this.outline.scale.set((s.size.width_m - 0.12) / 2, 1, (s.size.length_m - 0.12) / 2);
+    const grow = this.padGrow(s);
+    this.outline.scale.set((s.size.width_m - 0.12 + grow) / 2, 1, (s.size.length_m - 0.12 + grow) / 2);
   }
 
   // -------------------------------------------------------------------- cars
