@@ -1,0 +1,763 @@
+import { audit } from "../audit.js";
+import { feeFor } from "../../shared/calc.js";
+import { THAI_MONTHS, bangkokToday } from "../../shared/thai.js";
+import { getSettings, sanitizeReminders, setSetting } from "../settings.js";
+import { decrypt, encrypt } from "../crypto.js";
+import { loadSavings, loadYears, rowFromDb } from "../data.js";
+import type { Queryable } from "../db.js";
+import { HttpError, intOrNull, route, str } from "../http.js";
+import { resolvePlacement } from "../placement.js";
+import { baysIn, isHexColor, isMotorcycle, isSlotId, isVehicleType, slotLabel } from "../../shared/lot.js";
+
+const EDIT = ["admin", "editor"] as const;
+const ADMIN = ["admin"] as const;
+const MAX_SATANG = 1_000_000_000; // 10 million baht
+
+function money(v: unknown, what = "จำนวนเงิน"): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v !== "number" || !Number.isInteger(v) || Math.abs(v) > MAX_SATANG) {
+    throw new HttpError(400, `${what}ไม่ถูกต้อง`);
+  }
+  return v;
+}
+const month = (v: unknown) => {
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 12) throw new HttpError(400, "เดือนไม่ถูกต้อง");
+  return v;
+};
+const year = (v: unknown) => {
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 2500 || v > 2700) throw new HttpError(400, "ปีไม่ถูกต้อง (ใช้ พ.ศ.)");
+  return v;
+};
+const baht = (satang: number | null) => (satang == null ? "ว่าง" : `${(satang / 100).toLocaleString("en-US")} บาท`);
+const ITEM_LABEL: Record<string, string> = {
+  to_father: "ให้พ่อ",
+  pay_aunt: "จ่ายป้า",
+  total_expense: "ค่าใช้จ่ายรวม",
+  collect: "เก็บเงิน",
+};
+
+const maskAccount = (n: string) => (n.length <= 4 ? n : `${"•".repeat(Math.max(0, n.replace(/-/g, "").length - 4))}${n.slice(-4)}`);
+
+// ------------------------------------------------------------------ data
+
+route("GET", "/data", "user", async (c) => {
+  const today = bangkokToday();
+  const [years, sv, customers, zones, accounts, settings, lastRun] = await Promise.all([
+    loadYears(c.db, [today.year]),
+    loadSavings(c.db),
+    c.db.query("select * from customers order by name"),
+    c.db.query("select * from zones order by sort_order, id"),
+    c.db.query("select id, bank, number_enc, holder, label, shows, sort_order from bank_accounts order by sort_order, id"),
+    getSettings(c.db),
+    c.db.query("select max(sent_at) as at from reminder_log"),
+  ]);
+  return {
+    today,
+    years,
+    savings: sv.savings,
+    savingsNotes: sv.notes,
+    customers: customers.map((r) => ({ id: r.id, name: r.name, phone: r.phone, email: r.email, note: r.note, isActive: r.is_active })),
+    zones: zones.map((r) => ({ id: r.id, name: r.name, description: r.description, access: r.access, slotIds: r.slot_ids ?? [], motoCapacity: r.moto_capacity, capacity: r.capacity, defaultFee: r.default_fee, sortOrder: r.sort_order, isActive: r.is_active })),
+    accounts: accounts.map((r) => ({ id: r.id, bank: r.bank, masked: maskAccount(decrypt(r.number_enc)), holder: r.holder, label: r.label, shows: r.shows })),
+    settings,
+    lastReminderAt: lastRun[0]?.at ?? null,
+  };
+});
+
+route("GET", "/reference", "user", async (c) => {
+  const [r] = await c.db.query("select value from settings where key = 'excelReference'");
+  return { reference: r?.value ?? null };
+});
+
+// -------------------------------------------------------------- payments
+
+route("PUT", "/ledger/payments", EDIT as any, async (c) => {
+  const b = await c.json();
+  const changes: any[] = Array.isArray(b.changes) ? b.changes : [];
+  if (!changes.length) return { ok: true, changed: 0 };
+  if (changes.length > 600) throw new HttpError(400, "แก้ไขพร้อมกันได้ไม่เกิน 600 ช่อง");
+  const parsed = changes.map((x) => ({ rowId: Number(x.rowId), month: month(x.month), amount: money(x.amount) }));
+  let changed = 0;
+  await c.db.tx(async (q) => {
+    for (const ch of parsed) {
+      const [row] = await q.query("select id, year, owner_name, plate from ledger_rows where id = $1", [ch.rowId]);
+      if (!row) throw new HttpError(404, "ไม่พบแถวที่แก้ไข");
+      const [prev] = await q.query("select amount from payments where row_id = $1 and month = $2", [ch.rowId, ch.month]);
+      const before = prev ? (prev.amount as number | null) : null;
+      if (before === ch.amount) continue;
+      await q.query(
+        `insert into payments (row_id, month, amount, updated_by) values ($1,$2,$3,$4)
+         on conflict (row_id, month) do update set amount = excluded.amount, updated_at = now(), updated_by = excluded.updated_by`,
+        [ch.rowId, ch.month, ch.amount, c.user!.id],
+      );
+      changed++;
+      await audit(c, {
+        action: "payment.update",
+        entity: "payment",
+        entityId: `${ch.rowId}:${ch.month}`,
+        summary: `${row.owner_name}${row.plate ? ` (${row.plate})` : ""} ${THAI_MONTHS[ch.month - 1]} ${row.year}: ${baht(before)} → ${baht(ch.amount)}`,
+        before: { amount: before },
+        after: { amount: ch.amount },
+      }, q);
+    }
+  });
+  return { ok: true, changed };
+});
+
+route("PUT", "/ledger/items", EDIT as any, async (c) => {
+  const b = await c.json();
+  const changes: any[] = Array.isArray(b.changes) ? b.changes : [];
+  if (changes.length > 200) throw new HttpError(400, "แก้ไขพร้อมกันได้ไม่เกิน 200 ช่อง");
+  let changed = 0;
+  await c.db.tx(async (q) => {
+    for (const x of changes) {
+      const y = year(x.year);
+      const m = month(x.month);
+      if (!(x.kind in ITEM_LABEL)) throw new HttpError(400, "ชนิดรายการไม่ถูกต้อง");
+      const amount = money(x.amount);
+      const [prev] = await q.query("select amount from year_items where year=$1 and month=$2 and kind=$3", [y, m, x.kind]);
+      const before = prev ? (prev.amount as number | null) : null;
+      if (before === amount) continue;
+      await q.query(
+        `insert into year_items (year, month, kind, amount) values ($1,$2,$3,$4)
+         on conflict (year, month, kind) do update set amount = excluded.amount`,
+        [y, m, x.kind, amount],
+      );
+      changed++;
+      await audit(c, {
+        action: "item.update",
+        entity: "year_item",
+        entityId: `${y}:${m}:${x.kind}`,
+        summary: `${ITEM_LABEL[x.kind]} ${THAI_MONTHS[m - 1]} ${y}: ${baht(before)} → ${baht(amount)}`,
+        before: { amount: before },
+        after: { amount },
+      }, q);
+    }
+  });
+  return { ok: true, changed };
+});
+
+// ------------------------------------------------------------------ rows
+
+/** slot / vehicle / due-day fields from a request body; `undefined` keeps the current value. */
+function lotFields(b: any, cur?: Record<string, any>) {
+  const slot = b.slotId === undefined ? (cur?.slot_id ?? null) : b.slotId === null || b.slotId === "" ? null : b.slotId;
+  if (slot !== null && !isSlotId(slot)) throw new HttpError(400, "ช่องจอดไม่ถูกต้อง");
+  const type = b.vehicleType === undefined ? (cur?.vehicle_type ?? null) : b.vehicleType === null || b.vehicleType === "" ? null : b.vehicleType;
+  if (type !== null && !isVehicleType(type)) throw new HttpError(400, "ประเภทรถไม่ถูกต้อง");
+  const color = b.carColor === undefined ? (cur?.car_color ?? null) : b.carColor === null || b.carColor === "" ? null : b.carColor;
+  if (color !== null && !isHexColor(color)) throw new HttpError(400, "สีรถไม่ถูกต้อง");
+  const province = b.plateProvince === undefined ? (cur?.plate_province ?? "") : str(b.plateProvince, 40);
+  return { slot_id: slot as string | null, vehicle_type: type as string | null, car_color: color as string | null, plate_province: province, due_day: dueDay(b.dueDay, cur?.due_day ?? null) };
+}
+
+/** 1..31, or null for "use the default"; `undefined` keeps the current value. */
+function dueDay(v: unknown, keep: number | null): number | null {
+  if (v === undefined) return keep;
+  if (v === null || v === "") return null;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 31) throw new HttpError(400, "วันนัดชำระต้องเป็นวันที่ 1–31");
+  return v;
+}
+
+async function ensureCustomer(q: Queryable, name: string): Promise<number> {
+  const found = await q.query("select id from customers where name = $1", [name]);
+  if (found[0]) return found[0].id;
+  const [created] = await q.query("insert into customers (name) values ($1) returning id", [name]);
+  return created.id;
+}
+
+/** Insert one ledger row after the placement rules agree; shared by the ledger form and add-customer. */
+async function insertRow(q: Queryable, f: { year: number; customerId: number; ownerName: string; plate: string; zoneId: number | null; kind: string; bulkCount: number; fee: number; startMonth: number; note: string; body: any }) {
+  const lot = lotFields(f.body);
+  const place = await resolvePlacement(q, {
+    year: f.year, rowId: null, vehicleType: lot.vehicle_type, zoneId: f.zoneId, slotId: lot.slot_id,
+    bay: f.body.bay == null ? null : Number(f.body.bay), startMonth: f.startMonth, endMonth: null, counts: f.kind === "normal",
+  });
+  const [{ n }] = await q.query<{ n: number }>("select coalesce(max(sort_order), -1)::int + 1 as n from ledger_rows where year = $1", [f.year]);
+  const [r] = await q.query(
+    `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, start_month, note,
+       slot_id, vehicle_type, car_color, plate_province, due_day, bay)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning *`,
+    [f.year, n, f.customerId, f.ownerName, f.plate, place.zone_id, f.kind, f.bulkCount, f.fee, f.startMonth, f.note, place.slot_id, lot.vehicle_type, lot.car_color, lot.plate_province, lot.due_day, place.bay],
+  );
+  return r;
+}
+
+route("POST", "/ledger/rows", EDIT as any, async (c) => {
+  const b = await c.json();
+  const y = year(b.year);
+  const ownerName = str(b.ownerName, 120);
+  if (!ownerName) throw new HttpError(400, "กรุณากรอกชื่อผู้เช่า");
+  const settings = await getSettings(c.db);
+  const kind = ["normal", "excluded", "bulk"].includes(b.kind) ? b.kind : "normal";
+  const created = await c.db.tx(async (q) => {
+    const customerId = b.customerId ? Number(b.customerId) : await ensureCustomer(q, ownerName);
+    const r = await insertRow(q, {
+      year: y, customerId, ownerName, plate: str(b.plate, 40), zoneId: b.zoneId ? Number(b.zoneId) : null, kind,
+      bulkCount: Math.max(1, Number(b.bulkCount) || 1), fee: money(b.monthlyFee) ?? settings.monthlyFeeDefault,
+      startMonth: b.startMonth == null ? 1 : month(b.startMonth), note: str(b.note, 300), body: b,
+    });
+    await audit(c, { action: "row.create", entity: "ledger_row", entityId: r.id, summary: `เพิ่มผู้เช่า ${ownerName}${r.plate ? ` (${r.plate})` : ""} ในปี ${y}${r.slot_id ? ` ช่อง ${r.slot_id}` : ""}`, after: pick(r) }, q);
+    return r;
+  });
+  return { row: rowFromDb(created) };
+});
+
+route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
+  const id = Number(c.params.id);
+  const b = await c.json();
+  const [cur] = await c.db.query("select * from ledger_rows where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบแถว");
+  const n: Record<string, any> = {
+    owner_name: b.ownerName === undefined ? cur.owner_name : str(b.ownerName, 120),
+    plate: b.plate === undefined ? cur.plate : str(b.plate, 40),
+    zone_id: b.zoneId === undefined ? cur.zone_id : b.zoneId ? Number(b.zoneId) : null,
+    kind: b.kind === undefined ? cur.kind : ["normal", "excluded", "bulk"].includes(b.kind) ? b.kind : cur.kind,
+    monthly_fee: cur.monthly_fee,
+    fee_changes: cur.fee_changes ?? [],
+    is_active: b.isActive === undefined ? cur.is_active : Boolean(b.isActive),
+    needs_review: b.needsReview === undefined ? cur.needs_review : Boolean(b.needsReview),
+    note: b.note === undefined ? cur.note : str(b.note, 300),
+    start_month: b.startMonth === undefined ? cur.start_month : month(b.startMonth),
+    end_month: b.endMonth === undefined ? cur.end_month : b.endMonth === null ? null : month(b.endMonth),
+    paid_through_year: b.paidThroughYear === undefined ? cur.paid_through_year : intOrNull(b.paidThroughYear),
+    paid_through_month: b.paidThroughMonth === undefined ? cur.paid_through_month : b.paidThroughMonth === null ? null : month(b.paidThroughMonth),
+    sort_order: b.sortOrder === undefined ? cur.sort_order : Number(b.sortOrder) || 0,
+  };
+  if (!n.owner_name) throw new HttpError(400, "กรุณากรอกชื่อผู้เช่า");
+  // a new price starts from a month: earlier months keep the price they had
+  const newFee = b.monthlyFee === undefined ? null : money(b.monthlyFee);
+  let feeNote = "";
+  let feeFrom = 1;
+  if (newFee != null && newFee > 0) {
+    const t = bangkokToday();
+    feeFrom = b.feeFrom == null ? (cur.year === t.year ? t.month : 1) : month(b.feeFrom);
+    const now = feeFor({ monthlyFee: cur.monthly_fee, feeChanges: cur.fee_changes ?? [] }, feeFrom);
+    if (newFee !== now) {
+      if (feeFrom <= 1) Object.assign(n, { monthly_fee: newFee, fee_changes: [] });
+      else {
+        const keep = (cur.fee_changes ?? []).filter((x: any) => x.month < feeFrom);
+        const before = feeFor({ monthlyFee: cur.monthly_fee, feeChanges: keep }, feeFrom - 1);
+        n.fee_changes = newFee === before ? keep : [...keep, { month: feeFrom, fee: newFee }];
+      }
+      feeNote = ` · ราคา ${now / 100} → ${newFee / 100} บาท ตั้งแต่เดือน ${THAI_MONTHS[feeFrom - 1]} (เดือนก่อนหน้าไม่เปลี่ยน)`;
+    }
+  }
+  const lot = lotFields(b, cur);
+  Object.assign(n, lot);
+  await c.db.tx(async (q) => {
+    const place = await resolvePlacement(q, {
+      year: cur.year, rowId: id, vehicleType: n.vehicle_type, zoneId: n.zone_id, slotId: n.slot_id,
+      bay: b.bay !== undefined ? (b.bay === null ? null : Number(b.bay)) : n.slot_id === cur.slot_id && n.vehicle_type === cur.vehicle_type && n.zone_id === cur.zone_id ? cur.bay : null,
+      startMonth: n.start_month, endMonth: n.end_month, counts: n.is_active && n.kind === "normal", cur: cur as any,
+    });
+    n.slot_id = place.slot_id;
+    n.zone_id = place.zone_id;
+    n.bay = place.bay;
+    await q.query(
+      `update ledger_rows set owner_name=$2, plate=$3, zone_id=$4, kind=$5, monthly_fee=$6, is_active=$7, needs_review=$8,
+         note=$9, start_month=$10, end_month=$11, paid_through_year=$12, paid_through_month=$13, sort_order=$14,
+         slot_id=$15, vehicle_type=$16, car_color=$17, plate_province=$18, due_day=$19, bay=$20, fee_changes=$21::jsonb where id=$1`,
+      [id, n.owner_name, n.plate, n.zone_id, n.kind, n.monthly_fee, n.is_active, n.needs_review, n.note, n.start_month, n.end_month, n.paid_through_year, n.paid_through_month, n.sort_order, n.slot_id, n.vehicle_type, n.car_color, n.plate_province, n.due_day, n.bay, JSON.stringify(n.fee_changes)],
+    );
+    // the same vehicle in later years continues at the new price (those years had their own copy of the old one)
+    let later = 0;
+    if (feeNote) {
+      const same = cur.customer_id != null ? "customer_id = $2" : "owner_name = $2";
+      const r = await q.query(
+        `update ledger_rows set monthly_fee = $1, fee_changes = '[]'::jsonb where year > $4 and plate = $3 and ${same} returning id`,
+        [feeFor({ monthlyFee: n.monthly_fee, feeChanges: n.fee_changes }, 12), cur.customer_id ?? cur.owner_name, cur.plate, cur.year],
+      );
+      later = r.length;
+    }
+    await audit(c, { action: "row.update", entity: "ledger_row", entityId: id, summary: `แก้ไขผู้เช่า ${n.owner_name}${n.plate ? ` (${n.plate})` : ""} ปี ${cur.year}${feeNote}${later ? ` · ปีถัดไป ${later} แถวใช้ราคาใหม่ต่อ` : ""}`, before: pick(cur), after: pick(n) }, q);
+  });
+  const [row] = await c.db.query("select * from ledger_rows where id = $1", [id]);
+  return { row: rowFromDb(row) };
+});
+
+const pick = (r: any) => ({ ownerName: r.owner_name, plate: r.plate, plateProvince: r.plate_province, slotId: r.slot_id, bay: r.bay, vehicleType: r.vehicle_type, carColor: r.car_color, dueDay: r.due_day, zoneId: r.zone_id, kind: r.kind, monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [], isActive: r.is_active, needsReview: r.needs_review, note: r.note, startMonth: r.start_month, endMonth: r.end_month, paidThrough: r.paid_through_year ? `${r.paid_through_month}/${r.paid_through_year}` : null });
+route("DELETE", "/ledger/rows/:id", EDIT as any, async (c) => {
+  const id = Number(c.params.id);
+  const [cur] = await c.db.query("select * from ledger_rows where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบแถว");
+  const pays = await c.db.query("select month, amount, updated_at, updated_by from payments where row_id = $1 order by month", [id]);
+  await c.db.tx(async (q) => {
+    await q.query("delete from ledger_rows where id = $1", [id]);
+    // the whole row and its payments go into the audit entry, so “restore” can bring it back exactly
+    await audit(c, {
+      action: "row.delete",
+      entity: "ledger_row",
+      entityId: id,
+      summary: `ลบแถว ${cur.owner_name}${cur.plate ? ` (${cur.plate})` : ""} ปี ${cur.year}`,
+      before: { ownerName: cur.owner_name, plate: cur.plate, slotId: cur.slot_id, snapshot: { row: cur, payments: pays } },
+    }, q);
+  });
+  return { ok: true, restorable: true };
+});
+
+route("POST", "/ledger/years/:year/copy-previous", EDIT as any, async (c) => {
+  const y = year(Number(c.params.year));
+  const [{ n }] = await c.db.query<{ n: number }>("select count(*)::int as n from ledger_rows where year = $1", [y]);
+  if (n > 0) throw new HttpError(409, `ปี ${y} มีข้อมูลอยู่แล้ว`);
+  const prev = await c.db.query(
+    "select * from ledger_rows where year = $1 and (is_active or kind = 'excluded') order by sort_order, id",
+    [y - 1],
+  );
+  if (!prev.length) throw new HttpError(404, `ไม่พบข้อมูลปี ${y - 1} ให้คัดลอก`);
+  await c.db.tx(async (q) => {
+    let i = 0;
+    for (const r of prev) {
+      await q.query(
+        `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, note, slot_id, vehicle_type, car_color, plate_province, due_day, bay)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'',$10,$11,$12,$13,$14,$15)`,
+        [y, i++, r.customer_id, r.owner_name, r.plate, r.zone_id, r.kind, r.bulk_count, feeFor({ monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [] }, 12), r.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, r.bay],
+      );
+    }
+    await audit(c, { action: "year.copy", entity: "year", entityId: y, summary: `คัดลอกผู้เช่า ${prev.length} แถวจากปี ${y - 1} ไปปี ${y}` }, q);
+  });
+  return { ok: true, copied: prev.length };
+});
+
+// -------------------------------------------------------------- customers
+
+route("POST", "/customers", EDIT as any, async (c) => {
+  const b = await c.json();
+  const name = str(b.name, 120);
+  if (!name) throw new HttpError(400, "กรุณากรอกชื่อลูกค้า");
+  const settings = await getSettings(c.db);
+  const vehicles: any[] = Array.isArray(b.vehicles) ? b.vehicles.slice(0, 20) : [];
+  const y = b.year == null ? bangkokToday().year : year(b.year);
+  const out = await c.db.tx(async (q) => {
+    const dup = await q.query("select id from customers where name = $1", [name]);
+    if (dup.length) throw new HttpError(409, "มีลูกค้าชื่อนี้อยู่แล้ว");
+    const [cu] = await q.query(
+      "insert into customers (name, phone, email, note) values ($1,$2,$3,$4) returning *",
+      [name, str(b.phone, 40), str(b.email, 200), str(b.note, 300)],
+    );
+    const rows = [];
+    for (const v of vehicles) {
+      const r = await insertRow(q, {
+        year: y, customerId: cu.id, ownerName: name, plate: str(v.plate, 40), zoneId: v.zoneId ? Number(v.zoneId) : null, kind: "normal", bulkCount: 1,
+        fee: money(v.monthlyFee) ?? settings.monthlyFeeDefault, startMonth: v.startMonth ? month(v.startMonth) : 1, note: "", body: v,
+      });
+      rows.push(rowFromDb(r));
+    }
+    await audit(c, { action: "customer.create", entity: "customer", entityId: cu.id, summary: `เพิ่มลูกค้า ${name}${vehicles.length ? ` พร้อมรถ ${vehicles.length} คัน ในปี ${y}` : ""}`, after: { name, phone: cu.phone, email: cu.email, vehicles: vehicles.map((v) => v.plate) } }, q);
+    return { cu, rows };
+  });
+  return { customer: { id: out.cu.id, name: out.cu.name, phone: out.cu.phone, email: out.cu.email, note: out.cu.note, isActive: true }, rows: out.rows };
+});
+
+route("PATCH", "/customers/:id", EDIT as any, async (c) => {
+  const id = Number(c.params.id);
+  const b = await c.json();
+  const [cur] = await c.db.query("select * from customers where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบลูกค้า");
+  const n = {
+    name: b.name === undefined ? cur.name : str(b.name, 120),
+    phone: b.phone === undefined ? cur.phone : str(b.phone, 40),
+    email: b.email === undefined ? cur.email : str(b.email, 200),
+    note: b.note === undefined ? cur.note : str(b.note, 300),
+    is_active: b.isActive === undefined ? cur.is_active : Boolean(b.isActive),
+  };
+  if (!n.name) throw new HttpError(400, "กรุณากรอกชื่อลูกค้า");
+  if (n.name !== cur.name) {
+    const dup = await c.db.query("select id from customers where name = $1 and id <> $2", [n.name, id]);
+    if (dup.length) throw new HttpError(409, "มีลูกค้าชื่อนี้อยู่แล้ว");
+  }
+  await c.db.tx(async (q) => {
+    await q.query("update customers set name=$2, phone=$3, email=$4, note=$5, is_active=$6 where id=$1", [id, n.name, n.phone, n.email, n.note, n.is_active]);
+    // the name follows the customer into every year of the ledger
+    if (n.name !== cur.name) await q.query("update ledger_rows set owner_name = $2 where customer_id = $1", [id, n.name]);
+    if (n.is_active !== cur.is_active) {
+      const [{ cy }] = await q.query<{ cy: number }>("select $1::int as cy", [bangkokToday().year]);
+      await q.query("update ledger_rows set is_active = $2 where customer_id = $1 and year = $3", [id, n.is_active, cy]);
+    }
+    await audit(c, {
+      action: "customer.update",
+      entity: "customer",
+      entityId: id,
+      summary: `แก้ไขลูกค้า ${n.name}${n.name !== cur.name ? ` (เดิม ${cur.name})` : ""}`,
+      before: { name: cur.name, phone: cur.phone, email: cur.email, note: cur.note, isActive: cur.is_active },
+      after: { name: n.name, phone: n.phone, email: n.email, note: n.note, isActive: n.is_active },
+    }, q);
+  });
+  return { ok: true };
+});
+
+route("DELETE", "/customers/:id", ADMIN as any, async (c) => {
+  const id = Number(c.params.id);
+  const [cur] = await c.db.query("select * from customers where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบลูกค้า");
+  const [{ n }] = await c.db.query<{ n: number }>("select count(*)::int as n from ledger_rows where customer_id = $1", [id]);
+  if (n > 0) throw new HttpError(409, "ลูกค้ามีรายการในสมุดรายรับ ลบไม่ได้ ให้ปิดการใช้งานแทน");
+  await c.db.query("delete from customers where id = $1", [id]);
+  await audit(c, { action: "customer.delete", entity: "customer", entityId: id, summary: `ลบลูกค้า ${cur.name}`, before: { name: cur.name, snapshot: { customer: cur } } });
+  return { ok: true };
+});
+
+// ----------------------------------------------------------- payment due days
+
+/** Set one due day on every vehicle of a customer (the "sync" button); null = back to the default. */
+route("POST", "/customers/:id/sync-due-day", EDIT as any, async (c) => {
+  const id = Number(c.params.id);
+  const b = await c.json();
+  const [cu] = await c.db.query("select name from customers where id = $1", [id]);
+  if (!cu) throw new HttpError(404, "ไม่พบลูกค้า");
+  const d = dueDay(b.dueDay, null);
+  const y = b.year == null ? bangkokToday().year : year(b.year);
+  const changed = await c.db.tx(async (q) => {
+    const r = await q.query("update ledger_rows set due_day = $1 where customer_id = $2 and year = $3 and (due_day is distinct from $1) returning id", [d, id, y]);
+    await audit(c, { action: "customer.sync_due_day", entity: "customer", entityId: id, summary: `ตั้งวันนัดชำระของ ${cu.name} เป็น ${d ? `วันที่ ${d}` : "ค่าเริ่มต้น"} ทุกคัน (${r.length} คัน)`, after: { dueDay: d, year: y } }, q);
+    return r.length;
+  });
+  return { ok: true, changed };
+});
+
+/** Every vehicle of the year follows the default due day again. */
+route("POST", "/ledger/due-day/reset", ADMIN as any, async (c) => {
+  const b = await c.json();
+  const y = b.year == null ? bangkokToday().year : year(b.year);
+  const changed = await c.db.tx(async (q) => {
+    const r = await q.query("update ledger_rows set due_day = null where year = $1 and due_day is not null returning id", [y]);
+    await audit(c, { action: "ledger.reset_due_day", entity: "year", entityId: y, summary: `ให้รถทุกคันปี ${y} ใช้วันนัดชำระเริ่มต้น (${r.length} คัน)` }, q);
+    return r.length;
+  });
+  return { ok: true, changed };
+});
+
+// ------------------------------------------------------------------ zones
+
+const zoneBody = (b: any, cur?: Record<string, any>) => {
+  const slots: unknown = b.slotIds === undefined ? (cur?.slot_ids ?? []) : b.slotIds;
+  if (!Array.isArray(slots) || slots.some((x) => !isSlotId(x))) throw new HttpError(400, "รายการช่องจอดไม่ถูกต้อง");
+  const moto = b.motoCapacity === undefined ? (cur?.moto_capacity ?? 0) : Math.max(0, Math.round(Number(b.motoCapacity)) || 0);
+  return {
+    name: str(b.name ?? cur?.name ?? "", 80),
+    description: str(b.description ?? cur?.description ?? "", 200),
+    capacity: b.capacity === undefined ? (cur?.capacity ?? null) : b.capacity == null || b.capacity === "" ? null : Math.max(0, Math.round(Number(b.capacity)) || 0),
+    defaultFee: b.defaultFee === undefined ? (cur?.default_fee ?? null) : money(b.defaultFee),
+    isActive: b.isActive === undefined ? (cur?.is_active ?? true) : Boolean(b.isActive),
+    access: (b.access === undefined ? (cur?.access ?? "public") : b.access) as string,
+    slotIds: [...new Set(slots as string[])],
+    motoCapacity: moto,
+  };
+};
+
+/** Rules a zone must keep: unique slots across zones, motorcycle quota that fits, nobody evicted. */
+async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof zoneBody>): Promise<{ id: number; name: string; slots: string[]; rest: string[] }[]> {
+  if (!z.name) throw new HttpError(400, "กรุณากรอกชื่อโซน");
+  if (z.access !== "public" && z.access !== "private") throw new HttpError(400, "ชนิดโซนไม่ถูกต้อง");
+  // a slot picked here that sits in another zone is moved over (the other zone loses it)
+  const others = await q.query("select id, name, slot_ids, moto_capacity from zones where id <> $1", [id ?? 0]);
+  const takes: { id: number; name: string; slots: string[]; rest: string[]; motoCapacity: number }[] = [];
+  for (const o of others) {
+    const slots = (o.slot_ids as string[]).filter((s) => z.slotIds.includes(s));
+    if (!slots.length) continue;
+    const rest = (o.slot_ids as string[]).filter((s) => !slots.includes(s));
+    if (o.moto_capacity > 0) {
+      if (o.moto_capacity > baysIn(rest)) throw new HttpError(409, `โซน “${o.name}” เป็นโซนมอเตอร์ไซค์ ถ้าเอา ${slots.map(slotLabel).join(", ")} ออกจะจอดครบ ${o.moto_capacity} คันไม่ได้ ลดจำนวนที่โซนนั้นก่อน`);
+      const used = await q.query("select owner_name from ledger_rows where zone_id = $1 and slot_id = any($2::text[]) and is_active and kind <> 'excluded' limit 1", [o.id, slots]);
+      if (used.length) throw new HttpError(409, `${used[0].owner_name} จอดมอเตอร์ไซค์อยู่ในช่องที่จะย้าย`);
+    }
+    takes.push({ id: o.id, name: o.name, slots, rest, motoCapacity: o.moto_capacity });
+  }
+    if (z.motoCapacity > 0) {
+    if (!z.slotIds.length) throw new HttpError(400, "โซนมอเตอร์ไซค์ต้องเลือกช่องจอดอย่างน้อย 1 ช่อง");
+    const room = baysIn(z.slotIds);
+    if (z.motoCapacity > room) throw new HttpError(400, `ช่องที่เลือกจอดมอเตอร์ไซค์ได้สูงสุด ${room} คัน (ห่างกันคันละ 1 เมตร) ลดจำนวนหรือเพิ่มช่อง`);
+  }
+  if (id != null) {
+    const today = bangkokToday().year;
+    const held = await q.query(
+      "select id, owner_name, plate, slot_id, vehicle_type from ledger_rows where zone_id = $1 and year = $2 and is_active and kind <> 'excluded'",
+      [id, today],
+    );
+    const motos = held.filter((r) => isMotorcycle(r.vehicle_type));
+    if (z.motoCapacity > 0 && held.length > motos.length) throw new HttpError(409, "โซนนี้มีรถที่ไม่ใช่มอเตอร์ไซค์อยู่ จึงตั้งเป็นโซนมอเตอร์ไซค์ไม่ได้");
+    if (z.motoCapacity === 0 && motos.length) throw new HttpError(409, `โซนนี้มีมอเตอร์ไซค์ ${motos.length} คัน ต้องมีจำนวนจอดมอเตอร์ไซค์อย่างน้อยเท่านี้`);
+    if (z.motoCapacity > 0 && z.motoCapacity < motos.length) throw new HttpError(409, `มีมอเตอร์ไซค์จอดอยู่ ${motos.length} คัน ลดจำนวนต่ำกว่านี้ไม่ได้`);
+    for (const r of held) {
+      if (r.slot_id && !z.slotIds.includes(r.slot_id)) throw new HttpError(409, `เอา ${slotLabel(r.slot_id)} ออกไม่ได้ เพราะ ${r.owner_name}${r.plate ? ` (${r.plate})` : ""} ใช้อยู่`);
+    }
+  }
+  return takes;
+}
+
+async function applyTakes(q: Queryable, takes: { id: number; rest: string[] }[]) {
+  for (const t of takes) await q.query("update zones set slot_ids = $2::jsonb where id = $1", [t.id, JSON.stringify(t.rest)]);
+}
+const movedNote = (takes: { name: string; slots: string[] }[]) => (takes.length ? ` · ย้าย ${takes.map((t) => `${t.slots.map(slotLabel).join(", ")} จากโซน ${t.name}`).join("; ")}` : "");
+
+const zonePick = (z: ReturnType<typeof zoneBody>) => ({ name: z.name, access: z.access, isActive: z.isActive, slotIds: z.slotIds, motoCapacity: z.motoCapacity, capacity: z.capacity, defaultFee: z.defaultFee });
+
+route("POST", "/zones", EDIT as any, async (c) => {
+  const z = zoneBody(await c.json());
+  const r = await c.db.tx(async (q) => {
+    const takes = await checkZone(q, null, z);
+    await applyTakes(q, takes);
+    const [{ n }] = await q.query<{ n: number }>("select coalesce(max(sort_order), -1)::int + 1 as n from zones");
+    const [row] = await q.query(
+      "insert into zones (name, description, capacity, default_fee, is_active, sort_order, access, slot_ids, moto_capacity) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) returning id",
+      [z.name, z.description, z.capacity, z.defaultFee, z.isActive, n, z.access, JSON.stringify(z.slotIds), z.motoCapacity],
+    );
+    if (z.slotIds.length) await q.query("update ledger_rows set zone_id = $1 where slot_id = any($2::text[]) and (zone_id is distinct from $1)", [row.id, z.slotIds]);
+    await audit(c, { action: "zone.create", entity: "zone", entityId: row.id, summary: `เพิ่มโซน ${z.name} (${z.slotIds.length} ช่อง)${movedNote(takes)}`, after: zonePick(z) }, q);
+    return row;
+  });
+  return { id: r.id };
+});
+
+route("PATCH", "/zones/:id", EDIT as any, async (c) => {
+  const id = Number(c.params.id);
+  const [cur] = await c.db.query("select * from zones where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบโซน");
+  const z = zoneBody(await c.json(), cur);
+  await c.db.tx(async (q) => {
+    const takes = await checkZone(q, id, z);
+    await applyTakes(q, takes);
+    await q.query(
+      "update zones set name=$2, description=$3, capacity=$4, default_fee=$5, is_active=$6, access=$7, slot_ids=$8::jsonb, moto_capacity=$9 where id=$1",
+      [id, z.name, z.description, z.capacity, z.defaultFee, z.isActive, z.access, JSON.stringify(z.slotIds), z.motoCapacity],
+    );
+    // rows already sitting in a slot that now belongs to this zone follow it (the zone name shows everywhere)
+    if (z.slotIds.length) await q.query("update ledger_rows set zone_id = $1 where slot_id = any($2::text[]) and (zone_id is distinct from $1)", [id, z.slotIds]);
+    await audit(c, {
+      action: "zone.update",
+      entity: "zone",
+      entityId: id,
+      summary: `แก้ไขโซน ${z.name}${z.name !== cur.name ? ` (เดิม ${cur.name})` : ""}${cur.is_active !== z.isActive ? (z.isActive ? " · เปิดใช้งาน" : " · ปิดใช้งาน") : ""}${movedNote(takes)}`,
+      before: { name: cur.name, access: cur.access, isActive: cur.is_active, slotIds: cur.slot_ids, motoCapacity: cur.moto_capacity, capacity: cur.capacity, defaultFee: cur.default_fee },
+      after: zonePick(z),
+    }, q);
+  });
+  return { ok: true };
+});
+
+route("DELETE", "/zones/:id", EDIT as any, async (c) => {
+  const id = Number(c.params.id);
+  const [cur] = await c.db.query("select * from zones where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบโซน");
+  const held = await c.db.query("select id from ledger_rows where zone_id = $1", [id]);
+  await c.db.tx(async (q) => {
+    await q.query("delete from zones where id = $1", [id]);
+    await audit(c, { action: "zone.delete", entity: "zone", entityId: id, summary: `ลบโซน ${cur.name} (${held.length} แถวถูกตั้งเป็น “ไม่ระบุโซน”)`, before: { name: cur.name, snapshot: { zone: cur, rowIds: held.map((r) => r.id) } } }, q);
+  });
+  return { ok: true, detached: held.length, restorable: true };
+});
+
+// ------------------------------------------------------- restore deleted things
+
+/** Bring back something that was deleted, from the snapshot the delete left in the audit log. */
+route("POST", "/audit/:id/restore", ADMIN as any, async (c) => {
+  const auditId = Number(c.params.id);
+  const [a] = await c.db.query("select id, action, entity_id, before from audit_log where id = $1", [auditId]);
+  const snap = a?.before?.snapshot;
+  if (!a || !snap || !["row.delete", "zone.delete", "customer.delete"].includes(a.action)) throw new HttpError(404, "รายการนี้กู้คืนไม่ได้ (ไม่มีข้อมูลเดิมเก็บไว้)");
+  let note = "";
+  let summary = "";
+  await c.db.tx(async (q) => {
+    if (a.action === "customer.delete") {
+      const k = snap.customer;
+      if ((await q.query("select 1 from customers where id = $1", [k.id])).length) throw new HttpError(409, "ลูกค้านี้ถูกกู้คืนไปแล้ว");
+      if ((await q.query("select 1 from customers where name = $1", [k.name])).length) throw new HttpError(409, `มีลูกค้าชื่อ “${k.name}” อยู่แล้ว กู้คืนซ้ำไม่ได้`);
+      await q.query(
+        "insert into customers (id, name, phone, email, note, is_active, created_at) values ($1,$2,$3,$4,$5,$6,$7)",
+        [k.id, k.name, k.phone ?? "", k.email ?? "", k.note ?? "", k.is_active ?? true, k.created_at ?? new Date().toISOString()],
+      );
+      summary = `กู้คืนลูกค้า ${k.name}`;
+    } else if (a.action === "zone.delete") {
+      const z = snap.zone;
+      if ((await q.query("select 1 from zones where id = $1", [z.id])).length) throw new HttpError(409, "โซนนี้ถูกกู้คืนไปแล้ว");
+      if ((await q.query("select 1 from zones where name = $1", [z.name])).length) throw new HttpError(409, `มีโซนชื่อ “${z.name}” อยู่แล้ว`);
+      const taken = new Set((await q.query("select slot_ids from zones")).flatMap((r) => r.slot_ids as string[]));
+      const keep = (z.slot_ids as string[]).filter((s) => !taken.has(s));
+      const lost = (z.slot_ids as string[]).filter((s) => taken.has(s));
+      const motoCap = Math.min(z.moto_capacity ?? 0, baysIn(keep));
+      await q.query(
+        "insert into zones (id, name, description, capacity, default_fee, is_active, sort_order, access, slot_ids, moto_capacity) values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)",
+        [z.id, z.name, z.description ?? "", z.capacity, z.default_fee, z.is_active, z.sort_order ?? 0, z.access ?? "public", JSON.stringify(keep), motoCap],
+      );
+      const ids: number[] = snap.rowIds ?? [];
+      if (ids.length) await q.query("update ledger_rows set zone_id = $1 where id = any($2::int[]) and zone_id is null", [z.id, ids]);
+      if (lost.length) note = `ช่อง ${lost.map(slotLabel).join(", ")} ถูกใช้ในโซนอื่นแล้ว จึงไม่ได้ใส่กลับ`;
+      summary = `กู้คืนโซน ${z.name}`;
+    } else {
+      const r = snap.row;
+      if ((await q.query("select 1 from ledger_rows where id = $1", [r.id])).length) throw new HttpError(409, "แถวนี้ถูกกู้คืนไปแล้ว");
+      const zoneOk = r.zone_id != null && (await q.query("select 1 from zones where id = $1", [r.zone_id])).length > 0;
+      const custOk = r.customer_id != null && (await q.query("select 1 from customers where id = $1", [r.customer_id])).length > 0;
+      let place = { slot_id: r.slot_id as string | null, zone_id: (zoneOk ? r.zone_id : null) as number | null, bay: r.bay as number | null };
+      try {
+        place = await resolvePlacement(q, {
+          year: r.year, rowId: r.id, vehicleType: r.vehicle_type, zoneId: place.zone_id, slotId: r.slot_id, bay: r.bay,
+          startMonth: r.start_month, endMonth: r.end_month, counts: r.is_active && r.kind === "normal",
+        });
+      } catch (e) {
+        if (!(e instanceof HttpError)) throw e;
+        place = { slot_id: null, zone_id: place.zone_id, bay: null };
+        note = `${e.message} จึงกู้คืนโดยยังไม่ระบุช่อง เลือกช่องใหม่ได้ที่แถวนี้`;
+      }
+      await q.query(
+        `insert into ledger_rows (id, year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, source_row, monthly_fee,
+           paid_through_year, paid_through_month, start_month, end_month, note, needs_review, is_active, created_at,
+           slot_id, vehicle_type, car_color, plate_province, due_day, bay, fee_changes)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb)`,
+        [r.id, r.year, r.sort_order, custOk ? r.customer_id : null, r.owner_name, r.plate, place.zone_id, r.kind, r.bulk_count, r.source_row, r.monthly_fee,
+          r.paid_through_year, r.paid_through_month, r.start_month, r.end_month, r.note, r.needs_review, r.is_active, r.created_at,
+          place.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, place.bay, JSON.stringify(r.fee_changes ?? [])],
+      );
+      for (const p of snap.payments ?? []) {
+        await q.query("insert into payments (row_id, month, amount, updated_at, updated_by) values ($1,$2,$3,$4, (select id from users where id = $5))", [r.id, p.month, p.amount, p.updated_at, p.updated_by]);
+      }
+      summary = `กู้คืนแถว ${r.owner_name}${r.plate ? ` (${r.plate})` : ""} ปี ${r.year} พร้อมยอดชำระ ${(snap.payments ?? []).length} เดือน`;
+    }
+    await audit(c, { action: a.action.replace(".delete", ".restore"), entity: a.action === "row.delete" ? "ledger_row" : a.action.split(".")[0], entityId: a.entity_id, summary: note ? `${summary} (${note})` : summary, after: { fromAudit: auditId } }, q);
+  });
+  return { ok: true, note, summary };
+});
+
+// --------------------------------------------------------------- accounts
+
+route("GET", "/accounts/:id/reveal", EDIT as any, async (c) => {
+  const [r] = await c.db.query("select number_enc, holder, bank from bank_accounts where id = $1", [Number(c.params.id)]);
+  if (!r) throw new HttpError(404, "ไม่พบบัญชี");
+  await audit(c, { action: "account.reveal", entity: "bank_account", entityId: c.params.id, summary: `ดูเลขบัญชีเต็ม (${r.bank} ${r.holder})` });
+  return { number: decrypt(r.number_enc) };
+});
+
+route("POST", "/accounts", ADMIN as any, async (c) => {
+  const b = await c.json();
+  const number = str(b.number, 40);
+  if (!number) throw new HttpError(400, "กรุณากรอกเลขบัญชี");
+  const [r] = await c.db.query(
+    "insert into bank_accounts (bank, number_enc, holder, label, shows, sort_order) values ($1,$2,$3,$4,$5, (select coalesce(max(sort_order),-1)+1 from bank_accounts)) returning id",
+    [str(b.bank, 40) || "TTB", encrypt(number), str(b.holder, 120), str(b.label, 80), b.shows === "collect" ? "collect" : "net"],
+  );
+  await audit(c, { action: "account.create", entity: "bank_account", entityId: r.id, summary: `เพิ่มบัญชีรับเงิน ${str(b.bank, 40) || "TTB"} (${str(b.holder, 120)})` });
+  return { id: r.id };
+});
+
+route("PATCH", "/accounts/:id", ADMIN as any, async (c) => {
+  const id = Number(c.params.id);
+  const [cur] = await c.db.query("select * from bank_accounts where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบบัญชี");
+  const b = await c.json();
+  const number = b.number === undefined || b.number === "" ? null : str(b.number, 40);
+  await c.db.query(
+    "update bank_accounts set bank=$2, number_enc=$3, holder=$4, label=$5, shows=$6 where id=$1",
+    [id, b.bank === undefined ? cur.bank : str(b.bank, 40), number ? encrypt(number) : cur.number_enc, b.holder === undefined ? cur.holder : str(b.holder, 120), b.label === undefined ? cur.label : str(b.label, 80), b.shows === "collect" ? "collect" : b.shows === "net" ? "net" : cur.shows],
+  );
+  await audit(c, { action: "account.update", entity: "bank_account", entityId: id, summary: `แก้ไขบัญชีรับเงิน ${cur.bank} (${cur.holder})${number ? " — เปลี่ยนเลขบัญชี" : ""}` });
+  return { ok: true };
+});
+
+route("DELETE", "/accounts/:id", ADMIN as any, async (c) => {
+  const id = Number(c.params.id);
+  const [cur] = await c.db.query("select bank, holder from bank_accounts where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบบัญชี");
+  await c.db.query("delete from bank_accounts where id = $1", [id]);
+  await audit(c, { action: "account.delete", entity: "bank_account", entityId: id, summary: `ลบบัญชีรับเงิน ${cur.bank} (${cur.holder})` });
+  return { ok: true };
+});
+
+// --------------------------------------------------------------- settings
+
+route("PUT", "/settings", ADMIN as any, async (c) => {
+  const b = await c.json();
+  const before = await getSettings(c.db);
+  const after = { ...before };
+  if (b.monthlyFeeDefault !== undefined) {
+    const fee = money(b.monthlyFeeDefault);
+    if (fee == null || fee <= 0) throw new HttpError(400, "ค่าเช่าเริ่มต้นต้องมากกว่า 0");
+    after.monthlyFeeDefault = fee;
+    await setSetting(c.db, "monthlyFeeDefault", fee);
+  }
+  if (b.reminders !== undefined) {
+    after.reminders = sanitizeReminders(b.reminders);
+    await setSetting(c.db, "reminders", after.reminders);
+  }
+  await audit(c, { action: "settings.update", entity: "settings", summary: "แก้ไขการตั้งค่าระบบ/การแจ้งเตือน", before, after });
+  return { settings: after };
+});
+
+// -------------------------------------------------------- formula overrides
+
+route("POST", "/overrides/mode", ADMIN as any, async (c) => {
+  const b = await c.json();
+  const mode = b.mode === "standard" ? "standard" : b.mode === "legacy" ? "legacy" : null;
+  if (!mode) throw new HttpError(400, "โหมดสูตรไม่ถูกต้อง");
+  const ids: number[] | null = Array.isArray(b.ids) ? b.ids.map(Number) : null;
+  const rows = await c.db.query(
+    `select id, year, month, field, mode from calc_overrides where ($1::int[] is null or id = any($1::int[]))`,
+    [ids],
+  );
+  const toChange = rows.filter((r) => r.mode !== mode);
+  if (toChange.length) {
+    await c.db.query("update calc_overrides set mode = $2 where id = any($1::int[])", [toChange.map((r) => r.id), mode]);
+  }
+  await audit(c, {
+    action: "formula.mode",
+    entity: "calc_override",
+    entityId: ids ? ids.join(",") : "all",
+    summary: `เปลี่ยนสูตร ${toChange.length} จุด เป็น “${mode === "standard" ? "มาตรฐาน" : "ตามไฟล์เดิม"}”`,
+    before: toChange.map((r) => ({ id: r.id, year: r.year, month: r.month, field: r.field, mode: r.mode })),
+    after: { mode },
+  });
+  return { ok: true, changed: toChange.length };
+});
+
+// ----------------------------------------------------------------- savings
+
+route("PUT", "/savings/days", EDIT as any, async (c) => {
+  const b = await c.json();
+  const changes: any[] = Array.isArray(b.changes) ? b.changes : [];
+  if (changes.length > 400) throw new HttpError(400, "แก้ไขพร้อมกันได้ไม่เกิน 400 ช่อง");
+  let changed = 0;
+  await c.db.tx(async (q) => {
+    for (const x of changes) {
+      const y = year(x.year);
+      const m = month(x.month);
+      const d = Number(x.day);
+      if (!Number.isInteger(d) || d < 1 || d > 31) throw new HttpError(400, "วันที่ไม่ถูกต้อง");
+      const amount = money(x.amount);
+      const [prev] = await q.query("select amount from savings_days where year=$1 and month=$2 and day=$3", [y, m, d]);
+      const before = prev ? (prev.amount as number | null) : null;
+      if (before === amount) continue;
+      await q.query(
+        `insert into savings_days (year, month, day, amount) values ($1,$2,$3,$4)
+         on conflict (year, month, day) do update set amount = excluded.amount`,
+        [y, m, d, amount],
+      );
+      changed++;
+      await audit(c, { action: "savings.update", entity: "savings_day", entityId: `${y}:${m}:${d}`, summary: `เงินเก็บพ่อ ${d} ${THAI_MONTHS[m - 1]} ${y}: ${baht(before)} → ${baht(amount)}`, before: { amount: before }, after: { amount } }, q);
+    }
+  });
+  return { ok: true, changed };
+});
+
+route("PUT", "/savings/items", EDIT as any, async (c) => {
+  const b = await c.json();
+  const changes: any[] = Array.isArray(b.changes) ? b.changes : [];
+  let changed = 0;
+  await c.db.tx(async (q) => {
+    for (const x of changes) {
+      const y = year(x.year);
+      const m = month(x.month);
+      if (x.kind !== "expense" && x.kind !== "card") throw new HttpError(400, "ชนิดรายการไม่ถูกต้อง");
+      const amount = money(x.amount);
+      const [prev] = await q.query("select amount from savings_items where year=$1 and month=$2 and kind=$3", [y, m, x.kind]);
+      const before = prev ? (prev.amount as number | null) : null;
+      if (before === amount) continue;
+      await q.query(
+        `insert into savings_items (year, month, kind, amount) values ($1,$2,$3,$4)
+         on conflict (year, month, kind) do update set amount = excluded.amount`,
+        [y, m, x.kind, amount],
+      );
+      changed++;
+      await audit(c, { action: "savings.item", entity: "savings_item", entityId: `${y}:${m}:${x.kind}`, summary: `เงินเก็บพ่อ ${x.kind === "expense" ? "ค่าใช้จ่าย" : "ค่าบัตร"} ${THAI_MONTHS[m - 1]} ${y}: ${baht(before)} → ${baht(amount)}`, before: { amount: before }, after: { amount } }, q);
+    }
+  });
+  return { ok: true, changed };
+});

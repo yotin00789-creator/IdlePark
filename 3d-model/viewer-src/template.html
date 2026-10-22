@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ผังที่จอดรถ 3 มิติ — ตัวอย่างระบบเลือกช่องจอด</title>
+<style>
+:root { --bg:#f4f5f7; --card:#fff; --ink:#1c2430; --mut:#667085; --line:#e3e6eb; --pri:#2563eb; --ok:#16a34a; --amber:#f59e0b; }
+* { box-sizing: border-box; }
+html, body { margin:0; height:100%; font-family: 'IBM Plex Sans Thai','Noto Sans Thai',system-ui,sans-serif; color:var(--ink); background:var(--bg); }
+#app { display:grid; grid-template-columns: 360px 1fr; height:100%; }
+aside { background:var(--card); border-right:1px solid var(--line); overflow:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+h1 { font-size:17px; margin:0; } h3 { font-size:13px; margin:14px 0 6px; color:var(--mut); font-weight:600; }
+.sub { color:var(--mut); font-size:12.5px; margin:2px 0 0; }
+.sel { background:#f8fafc; border:1px solid var(--line); border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; gap:2px; font-size:13px; }
+.sel b { font-size:15px; } .sel span { color:var(--mut); } .sel .occ { color:var(--pri); } .sel .free { color:var(--ok); }
+.types { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+button { font:inherit; cursor:pointer; }
+.type { text-align:left; background:#fff; border:1px solid var(--line); border-radius:10px; padding:9px 11px; font-size:14px; display:flex; flex-direction:column; gap:1px; }
+.type small { color:var(--mut); font-size:11.5px; } .type.on { border-color:var(--pri); box-shadow:0 0 0 2px #dbe7ff; background:#f5f8ff; }
+.color { margin-bottom:8px; } .color label { display:block; font-size:12.5px; color:var(--mut); margin-bottom:4px; }
+.color input[type=color] { width:100%; height:34px; border:1px solid var(--line); border-radius:8px; padding:2px; background:#fff; }
+.sw { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; } .sw i { width:22px; height:22px; border-radius:50%; border:1px solid #0002; cursor:pointer; }
+.actions { display:flex; gap:8px; margin-top:6px; }
+.actions button { flex:1; padding:10px; border-radius:9px; border:0; background:var(--pri); color:#fff; font-weight:600; }
+.actions button.ghost { background:#fff; color:#b42318; border:1px solid #f1c0bb; } .actions button:disabled { opacity:.4; cursor:not-allowed; }
+.head { display:flex; justify-content:space-between; align-items:baseline; } #count { font-size:12.5px; color:var(--mut); }
+#list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+#list li { display:grid; grid-template-columns:26px 44px 38px 1fr 14px; align-items:center; gap:6px; padding:6px 8px; border-radius:8px; cursor:pointer; font-size:13px; }
+#list li:hover { background:#f2f4f7; } #list li.on { background:#fff4de; outline:1px solid var(--amber); }
+#list li b { color:var(--mut); } #list em { font-style:normal; font-size:11px; color:var(--mut); } #list .car { color:var(--ink); } .dot { width:12px; height:12px; border-radius:50%; border:1px solid #0003; }
+main { position:relative; min-width:0; }
+#view { position:absolute; inset:0; } #view canvas { display:block; width:100%; height:100%; cursor:grab; }
+.bar { position:absolute; top:12px; left:12px; display:flex; gap:6px; flex-wrap:wrap; z-index:2; }
+.bar button { background:#fffd; border:1px solid var(--line); border-radius:8px; padding:7px 11px; font-size:13px; backdrop-filter:blur(4px); }
+#loading { position:absolute; inset:0; display:grid; place-items:center; background:#dfe7ef; z-index:5; color:var(--mut); }
+.mini { display:flex; gap:6px; flex-wrap:wrap; } .mini button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:6px 10px; font-size:12.5px; }
+.carcard { background:#fffaf0; border:1px solid #f4d9a6; border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+.carcard .ch { display:flex; justify-content:space-between; align-items:baseline; } .carcard .ch b { font-size:15px; } .carcard .ch span { color:var(--mut); font-size:12px; }
+.carcard label { font-size:12px; color:var(--mut); }
+.carcard input { font:inherit; font-size:15px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; width:100%; background:#fff; }
+#plateText { font-weight:700; letter-spacing:.5px; text-align:center; }
+.views, .nav { display:flex; gap:6px; flex-wrap:wrap; } .views button, .nav button { flex:1; border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 8px; font-size:12.5px; }
+.views button:hover, .nav button:hover { background:#f2f4f7; }
+.hint { position:absolute; left:12px; bottom:12px; background:#fffd; border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:12px; color:var(--mut); z-index:2; }
+@media (max-width: 800px) { #app { grid-template-columns:1fr; grid-template-rows: 55% 45%; } aside { order:2; border-right:0; border-top:1px solid var(--line); } main { order:1; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <div><h1>ผังที่จอดรถ 3 มิติ</h1><p class="sub">ตัวอย่างการใช้โมเดลที่สร้างจาก Blender — คลิกรถเพื่อดูรายละเอียด ซูมดูป้ายทะเบียนหน้า-หลัง เปลี่ยนประเภทรถและสีได้อิสระ</p></div>
+    <div id="panel"></div>
+    <div class="mini"><button id="btnDemo">โหลดรถตัวอย่าง</button><button id="btnClearAll">ล้างทั้งหมด</button></div>
+    <div class="head"><h3 style="margin:8px 0 4px">ช่องจอด (เลขตามเข็มนาฬิกา)</h3><span id="count"></span></div>
+    <ul id="list"></ul>
+  </aside>
+  <main>
+    <div class="bar"><button id="vIso">มุมเฉียง</button><button id="vTop">มุมบน (เหนืออยู่ด้านบน)</button><button id="btnPads">แสดง/ซ่อนช่อง</button><button id="btnWall">กำแพงโปร่งแสง</button><button id="btnNum">แสดง/ซ่อนเลขช่อง</button></div>
+    <div id="view"></div>
+    <div class="hint">คลิกรถหรือช่องเพื่อดูรายละเอียด · ล้อเมาส์/บีบนิ้ว = ซูม · ลากซ้าย = หมุน · ลากขวา = เลื่อน · ← → = เปลี่ยนคัน</div>
+    <div id="loading">กำลังโหลดโมเดล…</div>
+  </main>
+</div>
+<script>window.__DATA__ = __DATA_JSON__;</script>
+<script>__BUNDLE__</script>
+</body>
+</html>

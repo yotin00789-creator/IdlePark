@@ -1,0 +1,463 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-*: initial;
+  --font-outfit: "IBM Plex Sans Thai", ui-sans-serif, system-ui, sans-serif;
+
+  --breakpoint-*: initial;
+  --breakpoint-2xsm: 375px;
+  --breakpoint-xsm: 425px;
+  --breakpoint-3xl: 2000px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+
+  --text-title-2xl: 72px;
+  --text-title-2xl--line-height: 90px;
+  --text-title-xl: 60px;
+  --text-title-xl--line-height: 72px;
+  --text-title-lg: 48px;
+  --text-title-lg--line-height: 60px;
+  --text-title-md: 36px;
+  --text-title-md--line-height: 44px;
+  --text-title-sm: 30px;
+  --text-title-sm--line-height: 38px;
+  --text-theme-xl: 20px;
+  --text-theme-xl--line-height: 30px;
+  --text-theme-sm: 14px;
+  --text-theme-sm--line-height: 20px;
+  --text-theme-xs: 12px;
+  --text-theme-xs--line-height: 18px;
+
+  --color-current: currentColor;
+  --color-transparent: transparent;
+  --color-white: #ffffff;
+  --color-black: #111314;
+
+  /* IdlePark: ink black + road-marking gold on warm paper. brand = ink (fills, primary buttons);
+     gold = accent; link = bronze (readable on paper). The dark theme swaps brand to gold. */
+  --color-gold-25: #fffbe6;
+  --color-gold-50: #fff7c2;
+  --color-gold-100: #ffeb85;
+  --color-gold-200: #fadd47;
+  --color-gold-300: #f6d015;
+  --color-gold-400: #f2c200;
+  --color-gold-500: #d9ae00;
+  --color-gold-600: #b08900;
+  --color-gold-700: #856700;
+  --color-gold-800: #5c4700;
+  --color-on-brand: #ffffff;
+  --color-link: #8a6700;
+  --color-link-hover: #5f4700;
+
+  --color-brand-25: #f8f7f4;
+  --color-brand-50: #f1efea;
+  --color-brand-100: #e6e3dc;
+  --color-brand-200: #d3cfc5;
+  --color-brand-300: #a9a498;
+  --color-brand-400: #6f6b62;
+  --color-brand-500: #17191c;
+  --color-brand-600: #0c0d0f;
+  --color-brand-700: #000000;
+  --color-brand-800: #000000;
+  --color-brand-900: #000000;
+  --color-brand-950: #000000;
+
+  --color-blue-light-25: #f5fbff;
+  --color-blue-light-50: #f0f9ff;
+  --color-blue-light-100: #e0f2fe;
+  --color-blue-light-200: #b9e6fe;
+  --color-blue-light-300: #7cd4fd;
+  --color-blue-light-400: #36bffa;
+  --color-blue-light-500: #0ba5ec;
+  --color-blue-light-600: #0086c9;
+  --color-blue-light-700: #026aa2;
+  --color-blue-light-800: #065986;
+  --color-blue-light-900: #0b4a6f;
+  --color-blue-light-950: #062c41;
+
+  --color-gray-25: #fcfbf9;
+  --color-gray-50: #f6f4f0;
+  --color-gray-100: #efece6;
+  --color-gray-200: #e3dfd7;
+  --color-gray-300: #cfcabf;
+  --color-gray-400: #9b968b;
+  --color-gray-500: #6b675f;
+  --color-gray-600: #504d47;
+  --color-gray-700: #3a3834;
+  --color-gray-800: #25272b;
+  --color-gray-900: #17191c;
+  --color-gray-950: #101113;
+  --color-gray-dark: #1c1e22;
+
+  --color-orange-25: #fffaf5;
+  --color-orange-50: #fff6ed;
+  --color-orange-100: #ffead5;
+  --color-orange-200: #fddcab;
+  --color-orange-300: #feb273;
+  --color-orange-400: #fd853a;
+  --color-orange-500: #fb6514;
+  --color-orange-600: #ec4a0a;
+  --color-orange-700: #c4320a;
+  --color-orange-800: #9c2a10;
+  --color-orange-900: #7e2410;
+  --color-orange-950: #511c10;
+
+  --color-success-25: #f6fef9;
+  --color-success-50: #ecfdf3;
+  --color-success-100: #d1fadf;
+  --color-success-200: #a6f4c5;
+  --color-success-300: #6ce9a6;
+  --color-success-400: #32d583;
+  --color-success-500: #12b76a;
+  --color-success-600: #039855;
+  --color-success-700: #027a48;
+  --color-success-800: #05603a;
+  --color-success-900: #054f31;
+  --color-success-950: #053321;
+
+  --color-error-25: #fffbfa;
+  --color-error-50: #fef3f2;
+  --color-error-100: #fee4e2;
+  --color-error-200: #fecdca;
+  --color-error-300: #fda29b;
+  --color-error-400: #f97066;
+  --color-error-500: #f04438;
+  --color-error-600: #d92d20;
+  --color-error-700: #b42318;
+  --color-error-800: #912018;
+  --color-error-900: #7a271a;
+  --color-error-950: #55160c;
+
+  --color-warning-25: #fffcf5;
+  --color-warning-50: #fffaeb;
+  --color-warning-100: #fef0c7;
+  --color-warning-200: #fedf89;
+  --color-warning-300: #fec84b;
+  --color-warning-400: #fdb022;
+  --color-warning-500: #f79009;
+  --color-warning-600: #dc6803;
+  --color-warning-700: #b54708;
+  --color-warning-800: #93370d;
+  --color-warning-900: #7a2e0e;
+  --color-warning-950: #4e1d09;
+
+  --color-theme-pink-500: #ee46bc;
+
+  --color-theme-purple-500: #7a5af8;
+
+  --shadow-theme-md:
+    0px 4px 8px -2px rgba(16, 24, 40, 0.1),
+    0px 2px 4px -2px rgba(16, 24, 40, 0.06);
+  --shadow-theme-lg:
+    0px 12px 16px -4px rgba(16, 24, 40, 0.08),
+    0px 4px 6px -2px rgba(16, 24, 40, 0.03);
+  --shadow-theme-sm:
+    0px 1px 3px 0px rgba(16, 24, 40, 0.1),
+    0px 1px 2px 0px rgba(16, 24, 40, 0.06);
+  --shadow-theme-xs: 0px 1px 2px 0px rgba(16, 24, 40, 0.05);
+  --shadow-theme-xl:
+    0px 20px 24px -4px rgba(16, 24, 40, 0.08),
+    0px 8px 8px -4px rgba(16, 24, 40, 0.03);
+  --shadow-datepicker: -5px 0 0 #262d3c, 5px 0 0 #262d3c;
+  --shadow-focus-ring: 0px 0px 0px 4px rgba(70, 95, 255, 0.12);
+  --shadow-slider-navigation:
+    0px 1px 2px 0px rgba(16, 24, 40, 0.1), 0px 1px 3px 0px rgba(16, 24, 40, 0.1);
+  --shadow-tooltip:
+    0px 4px 6px -2px rgba(16, 24, 40, 0.05),
+    -8px 0px 20px 8px rgba(16, 24, 40, 0.05);
+
+  --drop-shadow-4xl:
+    0 35px 35px rgba(0, 0, 0, 0.25), 0 45px 65px rgba(0, 0, 0, 0.15);
+
+  --z-index-1: 1;
+  --z-index-9: 9;
+  --z-index-99: 99;
+  --z-index-999: 999;
+  --z-index-9999: 9999;
+  --z-index-99999: 99999;
+  --z-index-999999: 999999;
+}
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  body {
+    @apply relative z-1 bg-gray-50 font-outfit font-normal text-gray-700 antialiased dark:bg-gray-900 dark:text-gray-300;
+  }
+
+  ::selection {
+    @apply bg-gold-200 text-gray-950;
+  }
+  .dark ::selection {
+    @apply bg-gold-400/40 text-white;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-gold-500;
+  }
+}
+
+/* ---- Ledger app building blocks (TailAdmin tokens only) ---- */
+@utility app-card {
+  @apply rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/3;
+}
+@utility app-th {
+  @apply px-3 py-2.5 text-start text-theme-xs font-medium whitespace-nowrap text-gray-500 dark:text-gray-400;
+}
+@utility app-td {
+  @apply px-3 py-2.5 text-theme-sm text-gray-700 dark:text-gray-300;
+}
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+@utility app-input {
+  @apply h-11 w-full rounded-lg border border-gray-300 bg-transparent px-3.5 text-base text-gray-800 shadow-theme-xs placeholder:text-gray-500 focus:border-gold-400 focus:ring-3 focus:ring-gold-300/30 focus:outline-hidden disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 md:h-10 md:text-theme-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-gold-400 dark:disabled:bg-gray-800;
+}
+
+@utility menu-item {
+  @apply relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-theme-sm font-medium;
+}
+
+@utility menu-item-active {
+  @apply bg-brand-50 text-brand-500 dark:bg-brand-500/[0.12] dark:text-brand-400;
+}
+
+@utility menu-item-inactive {
+  @apply text-gray-700 group-hover:text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/5 dark:hover:text-gray-300;
+}
+
+@utility menu-item-icon {
+  @apply text-gray-500 group-hover:text-gray-700 dark:text-gray-400;
+}
+
+@utility menu-item-icon-active {
+  @apply text-brand-500 dark:text-brand-400;
+}
+
+@utility menu-item-icon-inactive {
+  @apply text-gray-500 group-hover:text-gray-700 dark:text-gray-400 dark:group-hover:text-gray-300;
+}
+
+@utility no-scrollbar {
+  /* Chrome, Safari and Opera */
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+@utility custom-scrollbar {
+  &::-webkit-scrollbar {
+    @apply size-1.5;
+  }
+
+  &::-webkit-scrollbar-track {
+    @apply rounded-full;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-gray-200 dark:bg-gray-700;
+  }
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #344054;
+}
+
+@layer utilities {
+  /* For Remove Date Icon */
+  input[type="date"]::-webkit-inner-spin-button,
+  input[type="time"]::-webkit-inner-spin-button,
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    display: none;
+    -webkit-appearance: none;
+  }
+}
+
+/* third-party libraries CSS */
+.apexcharts-legend-text {
+  @apply text-gray-700! dark:text-gray-400!;
+}
+
+.apexcharts-text {
+  @apply fill-gray-700! dark:fill-gray-400!;
+}
+
+.apexcharts-tooltip.apexcharts-theme-light {
+  @apply gap-1 rounded-lg! border-gray-200! p-3 shadow-theme-sm! dark:border-gray-800! dark:bg-gray-900!;
+}
+
+.apexcharts-tooltip-marker {
+  margin-right: 6px;
+  height: 6px;
+  width: 6px;
+}
+.apexcharts-legend-text {
+  @apply pl-5! text-gray-700! dark:text-gray-400!;
+}
+.apexcharts-tooltip-series-group {
+  @apply p-0!;
+}
+.apexcharts-tooltip-y-group {
+  @apply p-0!;
+}
+.apexcharts-tooltip-title {
+  @apply mb-0! border-b-0! bg-transparent! p-0! text-[10px]! leading-4! text-gray-800! dark:text-white/90!;
+}
+.apexcharts-tooltip-text {
+  @apply text-theme-xs! text-gray-700! dark:text-white/90!;
+}
+.apexcharts-tooltip-text-y-value {
+  @apply font-medium!;
+}
+
+.apexcharts-gridline {
+  @apply stroke-gray-100! dark:stroke-gray-800!;
+}
+
+.task {
+  transition: all 0.2s ease; /* Smooth transition for visual effects */
+}
+
+.task {
+  border-radius: 0.75rem;
+  box-shadow:
+    0px 1px 3px 0px rgba(16, 24, 40, 0.1),
+    0px 1px 2px 0px rgba(16, 24, 40, 0.06);
+  opacity: 0.8;
+  cursor: grabbing; /* Changes the cursor to indicate dragging */
+}
+
+/* Toasts: slide in from the right, thin timer bar runs out */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-timer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.toast-card { animation: toast-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.toast-timer { animation-name: toast-timer; animation-timing-function: linear; animation-fill-mode: forwards; }
+.toast-card:hover .toast-timer { animation-play-state: paused; }
+@media (max-width: 767px) {
+  @keyframes toast-in { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: none; } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-card { animation: none; }
+}
+
+/* Dashboard greeting: a gently rotating gradient frame, coloured by the time of day */
+@property --greet-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes greet-spin {
+  to { --greet-angle: 360deg; }
+}
+.greet {
+  --g1: #f2c200; --g2: #ffb020; --g3: #fff1a8; --tint: #fffbe6;
+  position: relative;
+  border-radius: 1rem;
+  padding: 2px;
+  background: conic-gradient(from var(--greet-angle), var(--g1), var(--g2), var(--g3), var(--g1));
+  animation: greet-spin 7s linear infinite;
+  box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--g1) 55%, transparent);
+}
+.greet-inner { border-radius: calc(1rem - 2px); background: linear-gradient(120deg, var(--tint), #fff 70%); }
+.greet-icon { color: var(--g1); }
+.greet-morning { --g1: #f2c200; --g2: #ffb020; --g3: #fff1a8; --tint: #fffbe6; }
+.greet-noon { --g1: #f2c200; --g2: #e0a800; --g3: #fff7c2; --tint: #fffdf2; }
+.greet-evening { --g1: #f59e0b; --g2: #b45309; --g3: #fcd34d; --tint: #fff7e8; }
+.greet-night { --g1: #f2c200; --g2: #3a3d44; --g3: #f7dc6f; --tint: #f4f2ee; }
+.dark .greet-inner { background: linear-gradient(120deg, color-mix(in srgb, var(--g1) 14%, #101828), #101828 70%); }
+@media (prefers-reduced-motion: reduce) {
+  .greet { animation: none; }
+}
+
+/* Dark theme: the accent becomes gold, and text on gold is ink */
+.dark {
+  --color-brand-25: #1f1c10;
+  --color-brand-50: #2a2512;
+  --color-brand-100: #3b3314;
+  --color-brand-200: #6b5a10;
+  --color-brand-300: #f7dc6f;
+  --color-brand-400: #f5ce3a;
+  --color-brand-500: #f2c200;
+  --color-brand-600: #d9ae00;
+  --color-brand-700: #b08900;
+  --color-brand-800: #fff7c2;
+  --color-brand-900: #fffbe6;
+  --color-brand-950: #fffbe6;
+  --color-on-brand: #111314;
+  --color-link: #f5ce3a;
+  --color-link-hover: #ffe27a;
+}
+
+/* IdlePark finish: a gold road-marking bar marks the current menu item; cards sit on warm paper */
+.menu-item-active::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--color-gold-400);
+}
+.app-card { box-shadow: 0 1px 2px rgb(23 25 28 / 0.04), 0 8px 24px -16px rgb(23 25 28 / 0.12); }
+.dark .app-card { box-shadow: none; }
+
+/* Dashboard hero: ink card, gold rotating frame */
+.greet-hero .greet-inner { background: radial-gradient(120% 150% at 88% 0%, #2b2a20 0%, #17191c 55%, #101113 100%); }
+.dark .greet-hero .greet-inner { background: radial-gradient(120% 150% at 88% 0%, #2b2a20 0%, #1c1e22 55%, #15171a 100%); }
+
+/* Sign-in: the green circle that checks the code, the tick, and the sports car that drives through it */
+@keyframes vf-spin { to { transform: rotate(360deg); } }
+@keyframes vf-pop { from { transform: scale(0.82); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
+@keyframes vf-draw { to { stroke-dashoffset: 0; } }
+@keyframes vf-drive { from { transform: translateX(-60vw); } to { transform: translateX(0); } }
+@keyframes vf-through { from { transform: translateX(0); } to { transform: translateX(60vw); } }
+@keyframes vf-burst { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.9); opacity: 0; } }
+@keyframes vf-ripple { 0% { transform: scale(1); opacity: 0.55; } 100% { transform: scale(2.6); opacity: 0; } }
+.vf-spin { animation: vf-spin 0.7s linear infinite; }
+.vf-pop { animation: vf-pop 0.2s ease-out both; }
+.vf-check { stroke-dasharray: 44; stroke-dashoffset: 44; animation: vf-draw 0.26s 0.05s ease-out forwards; }
+.vf-drive { animation: vf-drive 0.55s cubic-bezier(0.5, 0, 0.9, 0.55) both; }
+.vf-through { animation: vf-through 0.36s cubic-bezier(0.4, 0, 1, 1) both; }
+.vf-burst { animation: vf-burst 0.28s ease-out both; }
+.vf-ripple { animation: vf-ripple 0.45s ease-out both; }
+/* the form slides sideways between password and code */
+.auth-slide { transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .vf-spin, .vf-pop, .vf-drive, .vf-through, .vf-burst, .vf-ripple { animation-duration: 0.01s; }
+  .auth-slide { transition-duration: 0.01s; }
+}

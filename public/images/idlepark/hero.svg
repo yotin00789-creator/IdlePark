@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 300" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F7DC6F"/><stop offset="1" stop-color="#F2C200"/></linearGradient>
+    <linearGradient id="w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#D9D5CC"/></linearGradient>
+  </defs>
+  <!-- road surface -->
+  <!-- bay lines -->
+  <g stroke="#F2C200" stroke-width="4" stroke-linecap="round" stroke-dasharray="14 12" opacity=".9">
+    <path d="M110 56v110M190 56v110M270 56v110M350 56v110"/>
+    <path d="M110 232v-40M190 232v-40M270 232v-40M350 232v-40" opacity=".0"/>
+  </g>
+  <path d="M60 176h340" stroke="#F2C200" stroke-width="4" stroke-linecap="round" stroke-dasharray="26 14" opacity=".55"/>
+  <!-- big P mark -->
+  <g opacity=".13"><rect x="165" y="196" width="110" height="64" rx="14" fill="#F2C200"/></g>
+  <path d="M206 244v-36h18a11 11 0 0 1 0 22h-18" stroke="#F2C200" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+  <!-- car 1 (gold) -->
+  <g transform="translate(118 62)">
+    <rect width="64" height="100" rx="18" fill="url(#g)"/>
+    <rect x="9" y="22" width="46" height="24" rx="8" fill="#111314" fill-opacity=".78"/>
+    <rect x="11" y="66" width="42" height="16" rx="6" fill="#111314" fill-opacity=".55"/>
+    <rect x="6" y="6" width="14" height="8" rx="4" fill="#FFF7C2"/><rect x="44" y="6" width="14" height="8" rx="4" fill="#FFF7C2"/>
+  </g>
+  <!-- car 2 (white) -->
+  <g transform="translate(278 76)">
+    <rect width="64" height="92" rx="18" fill="url(#w)"/>
+    <rect x="9" y="20" width="46" height="22" rx="8" fill="#111314" fill-opacity=".8"/>
+    <rect x="11" y="60" width="42" height="15" rx="6" fill="#111314" fill-opacity=".55"/>
+    <rect x="6" y="6" width="14" height="8" rx="4" fill="#F2C200"/><rect x="44" y="6" width="14" height="8" rx="4" fill="#F2C200"/>
+  </g>
+  <!-- moving car with motion bars -->
+  <g transform="translate(40 210) rotate(-90 32 16)">
+    <rect width="64" height="30" rx="12" fill="#F2C200" opacity=".0"/>
+  </g>
+  <g opacity=".95">
+    <rect x="46" y="204" width="86" height="40" rx="14" fill="url(#g)"/>
+    <rect x="96" y="212" width="26" height="24" rx="7" fill="#111314" fill-opacity=".78"/>
+    <rect x="56" y="212" width="30" height="24" rx="7" fill="#111314" fill-opacity=".5"/>
+    <rect x="124" y="210" width="6" height="10" rx="3" fill="#FFF7C2"/><rect x="124" y="228" width="6" height="10" rx="3" fill="#FFF7C2"/>
+  </g>
+  <g stroke="#F2C200" stroke-width="4" stroke-linecap="round" opacity=".55"><path d="M18 214h18M10 224h26M18 234h18"/></g>
+</svg>

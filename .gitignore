@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.commandcode
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# local data and secrets
+.env
+.env.*
+!.env.example
+.data/
+*.xlsx
+.vercel
+server-dist/
+
+# private sketch and heavy renders
+ที่จอดรถ.png
+3d-model/preview/
+.claude/settings.local.json
+prompt.md
