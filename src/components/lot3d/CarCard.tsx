@@ -131,7 +131,7 @@ export default function CarCard(p: CarCardProps) {
               <Button variant="outline" className="flex-1" icon={<PencilGlyph />} onClick={() => p.onEdit(car.row)}>{storage ? "แก้ไข" : "แก้ไขรถ"}</Button>
             </div>
           )}
-          {editable && <p className="text-center text-theme-xs text-gray-500 dark:text-gray-400">เพิ่มผิด? กด “{storage ? "แก้ไข" : "แก้ไขรถ"}” เพื่อเปลี่ยนช่อง ชื่อ ทะเบียน หรือลบ (ลบแล้วเลิกทำได้)</p>}
+          {editable && <p className="text-center text-theme-xs text-gray-500 dark:text-gray-400">เพิ่มผิด? กด “{storage ? "แก้ไข" : "แก้ไขรถ"}” เพื่อเปลี่ยนช่อง ชื่อ ทะเบียน หรือ “เอาออกจากผัง” (ข้อมูลในสมุดรายรับอยู่ครบ)</p>}
           {editable && car.customer && (
             <Button variant="ghost" className="w-full" icon={<UserGlyph />} onClick={() => p.onEditCustomer(car.customer!)}>ข้อมูลลูกค้า (ชื่อ เบอร์โทร)</Button>
           )}

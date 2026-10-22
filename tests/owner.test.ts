@@ -55,4 +55,18 @@ describe("the owner's vehicles: on the map, no rent, nothing to chase", () => {
     // the earlier customer can no longer silently take it back
     expect((await admin.patch(`/customers/${made.customer.id}`, { isActive: true })).status).toBe(409);
   });
+
+  it("taking a car off the 3D map keeps the ledger row, its payments and the customer", async () => {
+    const made = (await admin.post("/customers", { name: "ออกจากผัง", year: y, vehicles: [{ plate: "OFF 1", slotId: "W04", vehicleType: "sedan", monthlyFee: 120000 }] })).json;
+    const row = made.rows[0];
+    await admin.put("/ledger/payments", { changes: [{ rowId: row.id, month: 1, amount: 120000 }] });
+    const res = await admin.post(`/ledger/rows/${row.id}/unplace`, {});
+    expect(res.status).toBe(200);
+    const d = await data();
+    const after = d.years.find((x: any) => x.year === y).rows.find((r: any) => r.id === row.id);
+    expect(after).toMatchObject({ slotId: null, plate: "OFF 1", ownerName: "ออกจากผัง", isActive: true, customerId: made.customer.id });
+    expect(after.payments[0]).toBe(120000);
+    // the slot is free again, and the car can be put back
+    expect((await admin.patch(`/ledger/rows/${row.id}`, { slotId: "W04" })).status).toBe(200);
+  });
 });

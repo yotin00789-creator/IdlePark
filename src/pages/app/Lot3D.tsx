@@ -338,6 +338,7 @@ export default function Lot3D() {
         open={Boolean(rowEdit)}
         onClose={() => setRowEdit(null)}
         canDelete={editable}
+        fromMap
         presetSlot={rowEdit?.slot}
         presetZone={rowEdit?.zoneId}
       />

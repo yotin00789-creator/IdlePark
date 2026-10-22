@@ -22,6 +22,7 @@ interface RowSheetProps {
   presetName?: string; // when adding a vehicle for an existing customer
   presetSlot?: string; // when adding a car from an empty slot on the 3D map
   presetZone?: number; // ...or a bike from a motorcycle zone
+  fromMap?: boolean; // opened from the 3D map: "remove" only takes the vehicle off the map, the ledger keeps everything
 }
 
 const KIND: Record<RowKind, string> = { normal: "ปกติ (นับในยอดรวม)", excluded: "ไม่รวม (แสดงไว้แต่ไม่นับยอด)", bulk: "ยอดรวมหลายคัน" };
@@ -31,7 +32,7 @@ export default function RowSheet(props: RowSheetProps) {
   return <RowForm key={`${props.open}-${props.row?.id ?? "new"}`} {...props} />;
 }
 
-function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, presetZone }: RowSheetProps) {
+function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, presetZone, fromMap }: RowSheetProps) {
   const { data } = useData();
   const [name, setName] = useState(row?.ownerName ?? presetName ?? "");
   const [plate, setPlate] = useState(row?.plate ?? "");
@@ -121,6 +122,31 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
     }
   };
 
+  const unplace = async () => {
+    if (!row) return;
+    setBusy(true);
+    try {
+      const res = await api.post<{ auditId: number | null }>(`/ledger/rows/${row.id}/unplace`, {});
+      await dataStore.load(true);
+      const slot = row.slotId;
+      toast.success("เอาออกจากผัง 3 มิติแล้ว", `${row.ownerName}${row.plate ? ` (${row.plate})` : ""} ยังอยู่ในสมุดรายรับ ข้อมูลและยอดชำระครบ`, res.auditId == null || !slot ? undefined : {
+        label: "เลิกทำ",
+        run: () => {
+          api.patch(`/ledger/rows/${row.id}`, { slotId: slot, bay: row.bay })
+            .then(async () => {
+              await dataStore.load(true);
+              toast.success("วางกลับที่เดิมแล้ว");
+            })
+            .catch((e) => toast.error("วางกลับไม่ได้", errorMessage(e)));
+        },
+      });
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  };
+
   const remove = async () => {
     if (!row) return;
     setBusy(true);
@@ -170,7 +196,8 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
           </>
         ) : (
           <>
-            {row && canDelete && <Button variant="ghost" className="!flex-none text-error-600" onClick={() => setConfirmDel(true)}>ลบแถว</Button>}
+            {row && fromMap && row.slotId && <Button variant="ghost" className="!flex-none text-error-600" loading={busy} onClick={unplace}>เอาออกจากผัง</Button>}
+            {row && canDelete && !fromMap && <Button variant="ghost" className="!flex-none text-error-600" onClick={() => setConfirmDel(true)}>ลบแถว</Button>}
             <Button variant="outline" onClick={onClose}>ยกเลิก</Button>
             <Button loading={busy} onClick={save}>บันทึก</Button>
           </>

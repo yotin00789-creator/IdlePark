@@ -357,6 +357,26 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
 });
 
 const pick = (r: any) => ({ ownerName: r.owner_name, plate: r.plate, plateProvince: r.plate_province, slotId: r.slot_id, bay: r.bay, vehicleType: r.vehicle_type, carColor: r.car_color, dueDay: r.due_day, zoneId: r.zone_id, kind: r.kind, billing: r.billing, monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [], isActive: r.is_active, needsReview: r.needs_review, note: r.note, startMonth: r.start_month, endMonth: r.end_month, paidThrough: r.paid_through_year ? `${r.paid_through_month}/${r.paid_through_year}` : null });
+// take a vehicle off the 3D map only: the ledger row, its payments and the customer stay exactly as they were
+route("POST", "/ledger/rows/:id/unplace", EDIT as any, async (c) => {
+  const id = Number(c.params.id);
+  const [cur] = await c.db.query("select * from ledger_rows where id = $1", [id]);
+  if (!cur) throw new HttpError(404, "ไม่พบแถว");
+  if (!cur.slot_id) return { ok: true, auditId: null };
+  const auditId = await c.db.tx(async (q) => {
+    await q.query("update ledger_rows set slot_id = null, bay = null where id = $1", [id]);
+    return audit(c, {
+      action: "row.unplace",
+      entity: "ledger_row",
+      entityId: id,
+      summary: `เอา ${cur.owner_name}${cur.plate ? ` (${cur.plate})` : ""} ออกจากผังที่จอด ${slotLabel(cur.slot_id)} (ข้อมูลในสมุดรายรับอยู่ครบ)`,
+      before: { slotId: cur.slot_id, bay: cur.bay },
+      after: { slotId: null, bay: null },
+    }, q);
+  });
+  return { ok: true, auditId };
+});
+
 route("DELETE", "/ledger/rows/:id", EDIT as any, async (c) => {
   const id = Number(c.params.id);
   const [cur] = await c.db.query("select * from ledger_rows where id = $1", [id]);
