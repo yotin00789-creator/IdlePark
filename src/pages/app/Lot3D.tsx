@@ -176,7 +176,7 @@ export default function Lot3D() {
 
   // zones decide how empty slots look; motorcycle zones get their bay frames
   useEffect(() => {
-    scene.current?.setZones(data?.zones.map((z) => ({ slotIds: z.slotIds, access: z.access, isActive: z.isActive })) ?? []);
+    scene.current?.setZones(data?.zones.map((z) => ({ slotIds: z.slotIds, access: z.access, isActive: z.isActive, kind: z.kind })) ?? []);
     scene.current?.setBays(data ? motoBays(data) : []);
   }, [data, ready]);
 
@@ -218,6 +218,16 @@ export default function Lot3D() {
     setTop(kind === "top");
     setSelected(null);
     scene.current?.setOverview(kind);
+  };
+
+  const setKind = async (slotId: string, kind: "parking" | "storage") => {
+    try {
+      const res = await api.put<{ changed: boolean; zone: string | null }>(`/slots/${slotId}/kind`, { kind });
+      await dataStore.load(true);
+      toast.success(kind === "storage" ? "ตั้งเป็นคลังเก็บของแล้ว" : "ตั้งเป็นที่จอดรถแล้ว", kind === "storage" ? `${slotLabel(slotId)} อยู่ในโซน ${res.zone ?? "คลังเก็บของ"} และวางโมเดลคลังให้แล้ว` : `${slotLabel(slotId)} กลับเป็นช่องจอดรถ (ยังไม่อยู่โซนไหน เลือกโซนได้ที่เมนูโซนที่จอด)`);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
   };
 
   const assign = async (rowId: number, slotId: string, swap = false) => {
@@ -322,6 +332,7 @@ export default function Lot3D() {
                   onEditCustomer={setCustomerEdit}
                   onAdd={(slot, zoneId) => setRowEdit({ row: null, slot, zoneId })}
                   onAssign={assign}
+                  onSetKind={setKind}
                   onSelectKey={(k) => select(k)}
                 />
               </div>

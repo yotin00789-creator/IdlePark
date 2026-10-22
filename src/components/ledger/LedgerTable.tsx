@@ -6,6 +6,7 @@ import { explainMonth, explainTotal } from "@/lib/formulas";
 import { formatBaht, monthName, monthShort, parseBaht } from "@/lib/format";
 import { confirmItemChanges, savePayments, saveItems, useData, type ItemChange, type PaymentChange } from "@/lib/dataStore";
 import { modeFields, payMode } from "@/lib/payMode";
+import { setExcluded } from "@/lib/ledgerActions";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
 import { isYearly, monthStatus, rowYearTotal, isPrepaid, yearlyStatus, feeFor } from "../../../shared/calc";
@@ -142,7 +143,13 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
     return (
       <tr key={row.id} className={cn("group", dim && "bg-gray-50/60 dark:bg-white/2")}>
         <td className={cn(cellBase, sticky1, "bg-white group-hover:bg-gray-50 dark:bg-gray-900 dark:group-hover:bg-gray-800")}>
-          <button onClick={() => onEditRow(row)} className="flex w-full flex-col items-start px-3 py-2 text-start" title="แก้ไขข้อมูลผู้เช่า">
+          <div className="flex items-stretch">
+          {editable && row.kind !== "bulk" && (
+            <label className="flex shrink-0 cursor-pointer items-center ps-2" title={dim ? "ไม่รวมในบัญชี (ติ๊กอยู่) — เอาติ๊กออกเพื่อนับยอดตามปกติ" : "ติ๊กเพื่อไม่รวมผู้เช่านี้ในบัญชี (ยังบันทึกการเก็บเงินได้)"}>
+              <input type="checkbox" checked={dim} onChange={(e) => void setExcluded(row, e.target.checked)} aria-label={`ไม่รวม ${row.ownerName} ในบัญชี`} className="size-4 cursor-pointer rounded border-gray-300 accent-brand-500" />
+            </label>
+          )}
+          <button onClick={() => onEditRow(row)} className="flex min-w-0 flex-1 flex-col items-start px-2.5 py-2 text-start" title="แก้ไขข้อมูลผู้เช่า">
             <span className={cn("max-w-full truncate text-theme-sm font-medium", dim ? "text-gray-500" : "text-gray-800 dark:text-white/90")}>{row.ownerName}</span>
             <span className="flex flex-wrap gap-x-1.5 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
               {row.isOwner && <span className="text-blue-700 dark:text-blue-300">เจ้าของ</span>}
@@ -152,6 +159,7 @@ export default function LedgerTable({ year, calc, today, rows, editable, onEditR
               {row.paidThroughMonth && <span>จ่ายถึง {monthShort(row.paidThroughMonth)} {String(row.paidThroughYear).slice(-2)}</span>}
             </span>
           </button>
+          </div>
         </td>
         <td className={cn(cellBase, sticky2, "bg-white px-2 group-hover:bg-gray-50 dark:bg-gray-900 dark:group-hover:bg-gray-800")}>
           <PlateChip plate={row.plate} />

@@ -7,7 +7,7 @@ import type { AppData, Customer } from "@/lib/dataStore";
 import { formatBaht, monthName, monthShort } from "@/lib/format";
 import { emptyLabel, toneLabel, type LotCar } from "@/lib/lot";
 import { cn } from "@/utils";
-import { VEHICLE_SIZE, isMotorcycle, isStorageSlot, slotLabel, vehicleLabel } from "../../../shared/lot";
+import { STORAGE_SLOT, VEHICLE_SIZE, isMotorcycle, isStorageSlot, slotLabel, vehicleLabel } from "../../../shared/lot";
 import { useState } from "react";
 import { currentFee, isPrepaid, isYearly } from "../../../shared/calc";
 import type { LedgerRow } from "../../../shared/types";
@@ -31,6 +31,7 @@ interface CarCardProps {
   onAdd: (slotId: string, zoneId?: number) => void;
   onSelectKey: (key: string) => void;
   onAssign: (rowId: number, slotId: string, swap?: boolean) => void;
+  onSetKind: (slotId: string, kind: "parking" | "storage") => void;
 }
 
 const VIEWS: { id: ViewMode; label: string }[] = [
@@ -50,7 +51,7 @@ export default function CarCard(p: CarCardProps) {
   const { slot, car, data, editable } = p;
   const { today } = data;
   const dueDay = data.settings.reminders.dueDay;
-  const storage = slot.kind === "storage";
+  const storage = isStorageSlot(slot.id);
 
   return (
     <aside
@@ -199,7 +200,7 @@ function StatusBlock({ car, dueDay, day, month, year }: { car: LotCar; dueDay: n
       <div className="min-w-0 text-theme-sm">
         <p className="font-semibold">{toneLabel[car.tone]}{car.tone === "late" && car.unpaid.length > 1 ? ` ${car.unpaid.length} เดือน` : ""}</p>
         {car.tone === "owner" ? (
-          <p>รถของเจ้าของ ไม่คิดค่าเช่า ไม่แจ้งค้างชำระ และไม่นับในยอด</p>
+          <p>ไม่คิดค่าเช่า (เจ้าของหรือช่องส่วนตัว Private) ไม่แจ้งค้างชำระ และไม่นับในยอด</p>
         ) : car.tone === "paid" ? (
           <p>
             เดือน{monthName(month)} {year}
@@ -247,8 +248,8 @@ function Stepper({ onStep }: { onStep: (d: 1 | -1) => void }) {
   );
 }
 
-function EmptySlot({ slot, data, unplaced, editable, onAdd, onAssign }: CarCardProps) {
-  const storage = slot.kind === "storage";
+function EmptySlot({ slot, data, unplaced, editable, onAdd, onAssign, onSetKind }: CarCardProps) {
+  const storage = isStorageSlot(slot.id);
   const zone = data.zones.find((z) => z.slotIds.includes(slot.id));
   const motoZone = zone && zone.motoCapacity > 0 ? zone : null;
   const closed = zone && !zone.isActive;
@@ -272,6 +273,26 @@ function EmptySlot({ slot, data, unplaced, editable, onAdd, onAssign }: CarCardP
           <p>{storage ? "คลังเก็บของว่าง" : "ช่องนี้ว่าง"} · กว้าง {slot.size.width_m.toFixed(1)} × ยาว {slot.size.length_m.toFixed(1)} ม.</p>
         )}
       </div>
+      {editable && !motoZone && slot.id !== STORAGE_SLOT && (
+        <div>
+          <span className="mb-1.5 block text-theme-xs font-medium text-gray-500 dark:text-gray-400">ช่องนี้ใช้เป็น</span>
+          <div role="radiogroup" aria-label="ประเภทช่อง" className="grid grid-cols-2 gap-1.5">
+            {([["parking", "ที่จอดรถ"], ["storage", "คลังเก็บของ"]] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={storage === (k === "storage")}
+                onClick={() => storage !== (k === "storage") && onSetKind(slot.id, k)}
+                className={cn("h-9 rounded-lg border text-theme-sm font-medium", storage === (k === "storage") ? "border-brand-500 bg-brand-25 text-gray-900 dark:bg-brand-500/10 dark:text-white" : "border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/5")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {storage && <p className="mt-1.5 text-theme-xs text-gray-500 dark:text-gray-400">ช่องนี้เป็นคลังเก็บของ (โซน {zone?.name ?? "คลังเก็บของ"}) ผู้เช่าจ่ายปีละครั้ง</p>}
+        </div>
+      )}
       {closed ? (
         <p className="text-theme-sm text-gray-500 dark:text-gray-400">โซนนี้ปิดใช้งาน เลือกให้รถคันใหม่ไม่ได้ เปิดใช้งานได้ที่เมนู “โซนที่จอด”</p>
       ) : editable ? (

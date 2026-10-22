@@ -24,10 +24,19 @@ export const VEHICLE_TYPES = [
 ] as const;
 export type VehicleTypeId = (typeof VEHICLE_TYPES)[number]["id"];
 
-/** The storage shed (คลังเก็บของ). It is rented out too, so it is a slot without a vehicle. */
+/**
+ * The storage shed (คลังเก็บของ) is a slot without a vehicle, rented once a year. K01 is the shed that is built into
+ * the model and is always storage; any other slot becomes storage when it belongs to a zone of kind "storage".
+ * The set is loaded from the zones (web app: when the data loads; API: when a request reads the zones).
+ */
 export const STORAGE_SLOT = "K01";
-export const isStorageSlot = (id: string | null | undefined) => id === STORAGE_SLOT;
-export const slotLabel = (id: string) => (isStorageSlot(id) ? "คลังเก็บของ" : `ช่อง ${slotNumber(id)}`);
+let storageSlots = new Set<string>([STORAGE_SLOT]);
+export const setStorageSlots = (ids: Iterable<string>) => {
+  storageSlots = new Set<string>([STORAGE_SLOT, ...ids]);
+};
+export const getStorageSlots = (): string[] => SLOT_IDS.filter((id) => storageSlots.has(id));
+export const isStorageSlot = (id: string | null | undefined) => id != null && storageSlots.has(id);
+export const slotLabel = (id: string) => (id === STORAGE_SLOT ? "คลังเก็บของ" : isStorageSlot(id) ? `คลังเก็บของ (ช่อง ${slotNumber(id)})` : `ช่อง ${slotNumber(id)}`);
 
 /** Real-world size of each vehicle model (m): length × width. Models are drawn to these sizes, never scaled. */
 export const VEHICLE_SIZE: Record<string, readonly [number, number]> = {

@@ -40,6 +40,9 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
   const [syncing, setSyncing] = useState(false);
   if (!data) return null;
   const year = data.today.year;
+  // an owner's vehicles, and any vehicle placed in a Private slot, cost nothing and take no payments
+  const privateSlot = (v: VehicleDraft) => Boolean(v.slotId && data.zones.find((z) => z.slotIds.includes(v.slotId))?.access === "private") || data.zones.find((z) => String(z.id) === v.zoneId)?.access === "private";
+  const noRentOf = (v: VehicleDraft) => owner || privateSlot(v);
   const existing = c ? (data.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.customerId === c.id) : [];
 
   // switching to the shed clears the fee (it is a yearly amount, not the monthly default) and switching back restores the default
@@ -64,8 +67,8 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
         await api.patch(`/customers/${c.id}`, { name, phone, email, note, isActive: active, isOwner: owner });
       } else {
         const list = vehicles.filter((v) => v.plate.trim() || v.slotId);
-        const fees = list.map((v) => (owner ? 0 : parseBaht(v.fee)));
-        if (!owner && fees.some((f) => f === "invalid" || f == null || f <= 0)) throw new Error("ค่าเช่าต้องเป็นตัวเลขมากกว่า 0");
+        const fees = list.map((v) => (noRentOf(v) ? 0 : parseBaht(v.fee)));
+        if (fees.some((f, i) => !noRentOf(list[i]) && (f === "invalid" || f == null || f <= 0))) throw new Error("ค่าเช่าต้องเป็นตัวเลขมากกว่า 0");
         await api.post("/customers", {
           name, phone, email, note, year, isOwner: owner,
           vehicles: list.map((v, i) => ({
@@ -199,8 +202,11 @@ export default function CustomerSheet({ state, onClose, editable, admin }: { sta
               {vehicles.map((v, i) => (
                 <div key={i} className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
                   <RentKindPicker value={v} onChange={(patch) => setVehicle(i, patch)} year={year} taken={new Map(vehicles.flatMap((o, j) => (j !== i && o.slotId ? [[o.slotId, name || "รายการอีกคันในฟอร์มนี้"] as [string, string]] : [])))} />
-                  {owner ? (
+                  {noRentOf(v) ? (
+                  <>
+                  {!owner && <p className="rounded-lg bg-violet-50 px-3 py-2 text-theme-sm text-violet-800 dark:bg-violet-500/10 dark:text-violet-300">ช่องส่วนตัว (Private) ไม่คิดค่าเช่า ไม่รับชำระเงิน</p>}
                   <TextField label={isStorageSlot(v.slotId) ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={v.plate} onChange={(e) => setVehicle(i, { plate: e.target.value })} placeholder={isStorageSlot(v.slotId) ? "คลังเก็บของ" : "1กข 1234"} />
+                  </>
                   ) : (
                     <>
                   <div role="radiogroup" aria-label="จ่ายค่าเช่า" className="inline-flex rounded-lg bg-gray-100 p-0.5 dark:bg-white/8">

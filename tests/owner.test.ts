@@ -69,4 +69,20 @@ describe("the owner's vehicles: on the map, no rent, nothing to chase", () => {
     // the slot is free again, and the car can be put back
     expect((await admin.patch(`/ledger/rows/${row.id}`, { slotId: "W04" })).status).toBe(200);
   });
+
+  it("a Private zone is not rented: its vehicles cost nothing and take no payment; paid ones cannot be moved in", async () => {
+    const pz = (await admin.post("/zones", { name: "ส่วนตัวทดสอบ", access: "private", slotIds: ["C01", "C02"] })).json.id;
+    const made = (await admin.post("/customers", { name: "ในช่องส่วนตัว", year: y, vehicles: [{ plate: "PRV 1", slotId: "C01", vehicleType: "sedan", monthlyFee: 120000 }] })).json;
+    expect(made.rows[0]).toMatchObject({ isOwner: true, monthlyFee: 0, zoneId: pz });
+    expect((await admin.put("/ledger/payments", { changes: [{ rowId: made.rows[0].id, month: 1, amount: 120000 }] })).status).toBe(400);
+    // a tenant who already pays cannot be put there (their payments would drop out of the totals)
+    const payer = (await admin.post("/customers", { name: "คนจ่ายเงิน", year: y, vehicles: [{ plate: "PAY 1", slotId: "E01", vehicleType: "sedan", monthlyFee: 120000 }] })).json.rows[0];
+    await admin.put("/ledger/payments", { changes: [{ rowId: payer.id, month: 1, amount: 120000 }] });
+    expect((await admin.patch(`/ledger/rows/${payer.id}`, { slotId: "C02" })).status).toBe(409);
+    // the zone becoming public makes the vehicle a paying one with the default price
+    expect((await admin.patch(`/zones/${pz}`, { access: "public" })).status).toBe(200);
+    const after = (await data()).years.find((x: any) => x.year === y).rows.find((r: any) => r.id === made.rows[0].id);
+    expect(after).toMatchObject({ isOwner: false });
+    expect(after.monthlyFee).toBeGreaterThan(0);
+  });
 });

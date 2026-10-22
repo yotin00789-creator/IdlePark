@@ -8,6 +8,7 @@ interface SlotPicker3DProps {
   zones: Zone[]; // all zones, to colour the slots that already belong somewhere
   zoneId: number | null; // the zone being edited (null = a new one)
   selected: string[];
+  kind?: "parking" | "storage"; // what the zone being edited is: a storage zone shows the shed model on its slots
   disabled?: boolean;
   onToggle: (slotId: string) => void;
   holders?: Record<string, string>; // slot -> who rents it, for the hover note
@@ -28,7 +29,7 @@ const KEY = [
 ] as const;
 
 /** The lot in 3D, so the slots of a zone are picked by clicking them on the map. */
-export default function SlotPicker3D({ zones, zoneId, selected, disabled, onToggle, holders }: SlotPicker3DProps) {
+export default function SlotPicker3D({ zones, zoneId, selected, kind, disabled, onToggle, holders }: SlotPicker3DProps) {
   const host = useRef<HTMLDivElement>(null);
   const tip = useRef<HTMLDivElement>(null);
   const scene = useRef<LotScene | null>(null);
@@ -111,6 +112,14 @@ export default function SlotPicker3D({ zones, zoneId, selected, disabled, onTogg
     const map: Record<string, [number, number]> = { ...colours };
     s.setPadOverride({ ...allFree(s), ...map, ...Object.fromEntries(selected.map((id) => [id, GOLD])) });
   }, [ready, colours, selected]);
+
+  // storage sheds are drawn where a storage zone has slots (also the ones being picked right now)
+  useEffect(() => {
+    const s = scene.current;
+    if (!s || !ready) return;
+    const others = zones.filter((z) => z.id !== zoneId);
+    s.setZones([...others, { slotIds: selected, access: "public", isActive: true, kind: kind ?? zones.find((z) => z.id === zoneId)?.kind ?? "parking" }]);
+  }, [ready, zones, zoneId, selected, kind]);
 
   useEffect(() => {
     if (ready) scene.current?.setOverview(view, true);

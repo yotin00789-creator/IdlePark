@@ -50,7 +50,7 @@ export function emptyLabel(zones: Zone[], slotId: string): string {
 export function rentedRows(data: AppData): LedgerRow[] {
   const { year, month } = data.today;
   const rows = data.years.find((y) => y.year === year)?.rows ?? [];
-  return rows.filter((r) => r.isActive && r.kind === "normal" && r.startMonth <= month && (r.endMonth == null || r.endMonth >= month));
+  return rows.filter((r) => r.isActive && r.kind !== "bulk" && r.startMonth <= month && (r.endMonth == null || r.endMonth >= month));
 }
 
 export function buildLotCars(data: AppData): LotCar[] {

@@ -25,6 +25,8 @@ interface RowSheetProps {
   fromMap?: boolean; // opened from the 3D map: "remove" only takes the vehicle off the map, the ledger keeps everything
 }
 
+const privateNow = (row: LedgerRow, zones: { id: number; access: string }[]) => zones.find((z) => z.id === row.zoneId)?.access === "private";
+
 const KIND: Record<RowKind, string> = { normal: "ปกติ (นับในยอดรวม)", excluded: "ไม่รวม (แสดงไว้แต่ไม่นับยอด)", bulk: "ยอดรวมหลายคัน" };
 
 export default function RowSheet(props: RowSheetProps) {
@@ -66,7 +68,11 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
 
   // the customer's vehicles that are not on the map yet: pick one of them instead of creating a duplicate
   const sameCustomer = data.customers.find((c) => c.name === name.trim());
-  const owner = row ? row.isOwner : Boolean(sameCustomer?.isOwner); // the owner of the house: no rent, never chased
+  const customerOwner = row ? row.isOwner && !privateNow(row, data.zones) : Boolean(sameCustomer?.isOwner); // the owner of the house: no rent, never chased
+  const lotZone = lot.slotId ? data.zones.find((z) => z.slotIds.includes(lot.slotId)) : data.zones.find((z) => String(z.id) === lot.zoneId);
+  const privateZone = lotZone?.access === "private"; // reserved: no rent and no payments at all
+  // a row that stays in its zone shows what the ledger really has; a new place decides by itself (owner or Private = free)
+  const owner = row && lotZone?.id === row.zoneId ? row.isOwner : customerOwner || privateZone;
   const plateKey = plate.replace(/\s+/g, "").toUpperCase();
   const waiting = row ? [] : (data.years.find((y) => y.year === year)?.rows ?? []).filter(
     (r) => r.isActive && r.kind !== "excluded" && !r.slotId && ((sameCustomer && r.customerId === sameCustomer.id) || (plateKey && r.plate.replace(/\s+/g, "").toUpperCase() === plateKey)),
@@ -231,7 +237,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
         <RentKindPicker value={lot} onChange={(patch) => { setLot((v) => ({ ...v, ...patch })); if (patch.slotId !== undefined && isStorageSlot(patch.slotId) !== storage) setBilling(isStorageSlot(patch.slotId) ? "yearly" : "monthly"); }} year={year} exceptRowId={row?.id} />
         <div className="grid grid-cols-2 gap-4">
           <TextField label={storage ? "ชื่อรายการ (ไม่บังคับ)" : "ทะเบียนรถ"} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder={storage ? "คลังเก็บของ" : "เช่น 1กข 1234"} />
-          {owner ? <p className="flex items-end rounded-lg bg-blue-50 px-3 py-2.5 text-theme-sm text-blue-800 dark:bg-blue-500/10 dark:text-blue-300">เจ้าของ ไม่คิดค่าเช่า</p> : <TextField label={yearly ? "ค่าเช่าต่อปี (บาท)" : "ค่าเช่าต่อเดือน (บาท)"} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={yearly ? "จ่ายปีละครั้ง" : row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />}
+          {owner ? <p className="flex items-end rounded-lg bg-blue-50 px-3 py-2.5 text-theme-sm text-blue-800 dark:bg-blue-500/10 dark:text-blue-300">{privateZone && !customerOwner ? "ช่องส่วนตัว (Private) ไม่คิดค่าเช่า ไม่รับชำระเงิน" : "เจ้าของ ไม่คิดค่าเช่า"}</p> : <TextField label={yearly ? "ค่าเช่าต่อปี (บาท)" : "ค่าเช่าต่อเดือน (บาท)"} inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} hint={yearly ? "จ่ายปีละครั้ง" : row ? undefined : "ตั้งราคาแยกรายคันได้อิสระ"} />}
         </div>
         {!owner && <div>
           <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">จ่ายค่าเช่า</span>
@@ -254,7 +260,7 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
           </p>
         )}
         <VehicleLotFields value={lot} onChange={(patch) => setLot((v) => ({ ...v, ...patch }))} year={year} exceptRowId={row?.id} />
-        <DueDayField value={lot.dueDay} onChange={(v) => setLot((s) => ({ ...s, dueDay: v }))} defaultDay={data.settings.reminders.dueDay} />
+        {!owner && <DueDayField value={lot.dueDay} onChange={(v) => setLot((s) => ({ ...s, dueDay: v }))} defaultDay={data.settings.reminders.dueDay} />}
         <SelectField label="ประเภทแถว" value={kind} onChange={(e) => setKind(e.target.value as RowKind)}>
           {(Object.keys(KIND) as RowKind[]).map((k) => <option key={k} value={k}>{KIND[k]}</option>)}
         </SelectField>
@@ -267,13 +273,13 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
             {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </SelectField>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        {!owner && <div className="grid grid-cols-2 gap-4">
           <SelectField label="จ่ายล่วงหน้าถึงเดือน" value={ptMonth} onChange={(e) => setPtMonth(e.target.value)} hint="ไม่แจ้งเตือนค้างจนถึงเดือนนี้">
             <option value="">ไม่ได้จ่ายล่วงหน้า</option>
             {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </SelectField>
           <TextField label="ปี (พ.ศ.)" inputMode="numeric" value={ptYear} onChange={(e) => setPtYear(e.target.value)} disabled={!ptMonth} placeholder={String(year)} />
-        </div>
+        </div>}
         <TextAreaField label="หมายเหตุ" value={note} onChange={(e) => setNote(e.target.value)} />
         <Toggle checked={active} onChange={setActive} label="ใช้งานอยู่" hint="ปิดเมื่อเลิกเช่าแล้ว จะไม่ถูกแจ้งเตือนค้างชำระ" />
         <Toggle checked={review} onChange={setReview} label="ทำเครื่องหมายให้ตรวจสอบ" hint="ใช้กับแถวที่ข้อมูลไม่ครบ เช่น ไม่ทราบชื่อ" />

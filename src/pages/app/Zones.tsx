@@ -15,12 +15,12 @@ import { cn } from "@/utils";
 import { Suspense, lazy, useMemo, useState } from "react";
 import RentTotal from "@/components/app/RentTotal";
 import { rentTotals } from "../../../shared/calc";
-import { SLOT_GROUPS, SLOT_IDS, baysIn, bayGrid, isMotorcycle, isStorageSlot, slotLabel, slotNumber } from "../../../shared/lot";
+import { SLOT_GROUPS, SLOT_IDS, STORAGE_SLOT, baysIn, bayGrid, isMotorcycle, slotLabel, slotNumber } from "../../../shared/lot";
 import type { LedgerRow } from "../../../shared/types";
 
 const SlotPicker3D = lazy(() => import("@/components/lot3d/SlotPicker3D")); // three.js only loads when a zone is opened
 
-const slotShort = (id: string) => (isStorageSlot(id) ? "คลัง" : String(slotNumber(id)));
+const slotShort = (id: string) => (id === STORAGE_SLOT ? "คลัง" : String(slotNumber(id)));
 
 export default function Zones() {
   const { data } = useData();
@@ -76,7 +76,8 @@ export default function Zones() {
                       <td className="app-td">
                         <span className="font-medium text-gray-800 dark:text-white/90">{z.name}</span>
                         <span className="ms-2 inline-flex flex-wrap gap-1 align-middle">
-                          {z.access === "private" && <Tag tone="violet">Private</Tag>}
+                          {z.kind === "storage" && <Tag tone="blue">คลังเก็บของ</Tag>}
+                          {z.access === "private" && <Tag tone="violet">Private · ไม่คิดเงิน</Tag>}
                           {!z.isActive && <Tag tone="gray">ปิดใช้งาน</Tag>}
                           {z.motoCapacity > 0 && <Tag tone="blue">มอเตอร์ไซค์ {z.motoCapacity} คัน</Tag>}
                         </span>
@@ -133,6 +134,8 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
   const [name, setName] = useState(zone?.name ?? "");
   const [description, setDescription] = useState(zone?.description ?? "");
   const [access, setAccess] = useState<Zone["access"]>(zone?.access ?? "public");
+  const [kind, setKind] = useState<Zone["kind"]>(zone?.kind ?? "parking");
+  const storage = kind === "storage";
   const [slotIds, setSlotIds] = useState<string[]>(zone?.slotIds ?? []);
   const [moto, setMoto] = useState(Boolean(zone?.motoCapacity));
   const [motoCap, setMotoCap] = useState(String(zone?.motoCapacity || ""));
@@ -151,11 +154,11 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
 
   const save = async () => {
     if (!name.trim()) return setError("กรุณากรอกชื่อโซน");
-    const cap = moto ? Number(motoCap) : 0;
-    if (moto && (!cap || cap < 1)) return setError("กรอกจำนวนมอเตอร์ไซค์ที่จอดได้ (อย่างน้อย 1 คัน)");
+    const cap = moto && !storage ? Number(motoCap) : 0;
+    if (moto && !storage && (!cap || cap < 1)) return setError("กรอกจำนวนมอเตอร์ไซค์ที่จอดได้ (อย่างน้อย 1 คัน)");
     setBusy(true);
     setError(null);
-    const body = { name, description, access, slotIds, motoCapacity: cap, isActive: active };
+    const body = { name, description, kind, access: storage ? "public" : access, slotIds, motoCapacity: cap, isActive: active };
     try {
       if (zone) await api.patch(`/zones/${zone.id}`, body);
       else await api.post("/zones", body);
@@ -197,9 +200,30 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
           <TextField label="รายละเอียด" value={description} onChange={(e) => setDescription(e.target.value)} disabled={!editable} placeholder="เช่น ลานด้านหน้าบ้าน" />
 
           <div>
+            <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">ช่องในโซนนี้เป็น</span>
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="ประเภทช่อง">
+              {([["parking", "ที่จอดรถ", "รถยนต์ / มอเตอร์ไซค์ · จ่ายรายเดือน"], ["storage", "คลังเก็บของ", "ช่องแสดงเป็นโมเดลคลัง · จ่ายปีละครั้ง"]] as const).map(([id, label, hint]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={kind === id}
+                  disabled={!editable}
+                  onClick={() => setKind(id)}
+                  className={cn("rounded-lg border px-3 py-2.5 text-start", kind === id ? "border-brand-500 bg-brand-25 dark:bg-brand-500/10" : "border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-white/5")}
+                >
+                  <span className="block text-theme-sm font-medium text-gray-800 dark:text-white/90">{label}</span>
+                  <span className="block text-theme-xs text-gray-500 dark:text-gray-400">{hint}</span>
+                </button>
+              ))}
+            </div>
+            {storage && <p className="mt-1.5 text-theme-xs text-gray-500 dark:text-gray-400">ช่องที่เลือกด้านล่างจะเป็นคลังเก็บของ ผู้เช่าเลือกช่องนั้นได้เมื่อเพิ่มลูกค้า ผังที่จอด 3 มิติจะวางโมเดลคลังสีดำเทาให้ที่ช่องนั้น (ช่องที่มีรถจอดอยู่ต้องย้ายรถออกก่อน)</p>}
+          </div>
+
+          {!storage && <div>
             <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">ชนิดโซน</span>
             <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="ชนิดโซน">
-              {([["public", "ทั่วไป", "ให้เช่าตามปกติ"], ["private", "Private", "สงวนไว้ ไม่นับเป็นที่ว่างให้เช่า"]] as const).map(([id, label, hint]) => (
+              {([["public", "ทั่วไป", "ให้เช่าตามปกติ"], ["private", "Private", "สงวนไว้ ไม่คิดค่าเช่า ไม่รับชำระเงิน"]] as const).map(([id, label, hint]) => (
                 <button
                   key={id}
                   type="button"
@@ -214,7 +238,8 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
                 </button>
               ))}
             </div>
-          </div>
+            {access === "private" && <p className="mt-1.5 text-theme-xs text-gray-500 dark:text-gray-400">รถในโซน Private จะไม่มีค่าเช่า ไม่มีวันนัดชำระ ไม่รับชำระเงิน ไม่แจ้งค้างชำระ และไม่นับในยอดรวม</p>}
+          </div>}
           <Toggle checked={active} onChange={setActive} disabled={!editable} label="เปิดใช้งาน" hint="ปิดเมื่อไม่ให้ใช้โซนนี้ ช่องในโซนจะถูกแสดงเป็นสีเทา และเลือกให้รถคันใหม่ไม่ได้ (รถที่จอดอยู่ไม่ถูกย้าย)" />
 
           <div>
@@ -223,7 +248,7 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
               <span className="text-theme-xs text-gray-500 dark:text-gray-400">เลือกแล้ว {slotIds.length} ช่อง</span>
             </div>
             <Suspense fallback={<div className="h-72 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />}>
-              <SlotPicker3D zones={zones} zoneId={zone?.id ?? null} selected={slotIds} disabled={!editable} onToggle={toggle} holders={holders} />
+              <SlotPicker3D zones={zones} zoneId={zone?.id ?? null} selected={slotIds} kind={kind} disabled={!editable} onToggle={toggle} holders={holders} />
             </Suspense>
             <p className="mt-3 mb-1.5 text-theme-xs text-gray-500 dark:text-gray-400">หรือเลือกจากรายการ</p>
             <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-800">
@@ -265,7 +290,7 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
             )}
           </div>
 
-          <div className="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+          {!storage && <div className="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
             <Toggle checked={moto} onChange={setMoto} disabled={!editable} label="โซนนี้ให้จอดมอเตอร์ไซค์" hint="เป็นโซนมอเตอร์ไซค์: จอดได้เฉพาะมอเตอร์ไซค์ เรียงในช่องที่เลือก ห่างกันไม่ติดกัน" />
             {moto && (
               <div>
@@ -273,7 +298,7 @@ function ZoneSheet({ zone, zones, rows, onClose, editable }: { zone: Zone | null
                 {zone && motoCap && <p className="mt-2 text-theme-xs text-gray-500 dark:text-gray-400">จอดอยู่ {rows.filter((r) => r.zoneId === zone.id && isMotorcycle(r.vehicleType)).length} คัน · เหลือว่าง {Math.max(0, Number(motoCap) - rows.filter((r) => r.zoneId === zone.id && isMotorcycle(r.vehicleType)).length)} คัน</p>}
               </div>
             )}
-          </div>
+          </div>}
 
           {error && <p role="alert" className="text-theme-sm text-error-600 dark:text-error-500">{error}</p>}
         </div>

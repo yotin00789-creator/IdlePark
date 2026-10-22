@@ -8,6 +8,7 @@ import type { BangkokDate } from "../../shared/thai";
 import { api, ApiError } from "./api";
 import { confirmMoney } from "./confirm";
 import { formatBaht, THAI_MONTHS } from "../../shared/thai";
+import { setStorageSlots } from "../../shared/lot";
 import { toast } from "./toast";
 
 export interface Customer {
@@ -24,6 +25,7 @@ export interface Zone {
   name: string;
   description: string;
   access: "public" | "private";
+  kind: "parking" | "storage"; // a storage zone's slots are storage sheds (rented yearly, no car)
   slotIds: string[];
   motoCapacity: number;
   capacity: number | null;
@@ -73,6 +75,8 @@ let state: State = { data: null, loading: false, error: null, loadedAt: 0 };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<State>) => {
   state = { ...state, ...patch };
+  // which slots are storage sheds comes from the zones: every screen asks isStorageSlot()
+  if (patch.data) setStorageSlots(patch.data.zones.filter((z) => z.kind === "storage").flatMap((z) => z.slotIds));
   listeners.forEach((l) => l());
 };
 

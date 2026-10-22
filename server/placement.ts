@@ -3,6 +3,7 @@
 import { baysIn, bayGrid, isMotorcycle, isSlotId, isStorageSlot, slotLabel } from "../shared/lot.js";
 import type { Queryable } from "./db.js";
 import { HttpError } from "./http.js";
+import { loadStorage } from "./storage.js";
 
 export interface PlacementInput {
   year: number;
@@ -25,7 +26,8 @@ export interface Placement {
 const OVERLAP = "start_month <= $5 and coalesce(end_month, 12) >= $4";
 
 export async function resolvePlacement(q: Queryable, p: PlacementInput): Promise<Placement> {
-  const zones = await q.query("select id, name, is_active, slot_ids, moto_capacity from zones");
+  const zones = await q.query("select id, name, is_active, slot_ids, moto_capacity, kind, access from zones");
+  await loadStorage(q);
   const zoneOfSlot = (slot: string) => zones.find((z) => (z.slot_ids as string[]).includes(slot));
   const moto = isMotorcycle(p.vehicleType);
 
@@ -68,6 +70,9 @@ export async function resolvePlacement(q: Queryable, p: PlacementInput): Promise
     throw new HttpError(409, `โซน “${zone.name}” ไม่มีที่ว่างสำหรับมอเตอร์ไซค์`);
   }
 
+  // ---- a storage shed holds no vehicle, and a parking space is not rented as a shed
+  if (slot && isStorageSlot(slot) && p.vehicleType) throw new HttpError(409, `${slotLabel(slot)} เป็นคลังเก็บของ จอดรถไม่ได้ เลือกช่องที่เป็นที่จอดรถ`);
+
   // ---- everything else (cars, storage): a whole slot, never in a motorcycle zone
   if (zone && zone.moto_capacity > 0) throw new HttpError(409, `โซน “${zone.name}” เป็นโซนมอเตอร์ไซค์ ใส่รถอื่นไม่ได้`);
   if (!slot) return { slot_id: null, zone_id: zone?.id ?? null, bay: null };
@@ -79,7 +84,7 @@ export async function resolvePlacement(q: Queryable, p: PlacementInput): Promise
         where year = $1 and slot_id = $2 and is_active and id <> $3 and ${OVERLAP} limit 1`,
       [p.year, slot, p.rowId ?? 0, p.startMonth, p.endMonth ?? 12],
     );
-    if (clash) throw new HttpError(409, `${isStorageSlot(slot) ? "คลังเก็บของ" : `ช่อง ${slot}`} มี ${clash.owner_name}${clash.plate ? ` (${clash.plate})` : ""} อยู่แล้ว`);
+    if (clash) throw new HttpError(409, `${isStorageSlot(slot) ? slotLabel(slot) : `ช่อง ${slot}`} มี ${clash.owner_name}${clash.plate ? ` (${clash.plate})` : ""} อยู่แล้ว`);
   }
   return { slot_id: slot, zone_id: zone?.id ?? null, bay: null };
 }

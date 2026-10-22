@@ -69,7 +69,7 @@ describe("payment method and a full round trip of every ledger field", () => {
   });
 
   it("every field of a row, a customer and a zone survives the trip through the database", async () => {
-    const z = (await admin.post("/zones", { name: "โซนเต็มฟิลด์", access: "private", slotIds: ["N01", "N02"], defaultFee: 150000, description: "ทดสอบ" })).json.id;
+    const z = (await admin.post("/zones", { name: "โซนเต็มฟิลด์", access: "public", slotIds: ["N01", "N02"], defaultFee: 150000, description: "ทดสอบ" })).json.id;
     const made = await admin.post("/ledger/rows", {
       year, ownerName: "ครบทุกฟิลด์", plate: "9ฮฮ 9", plateProvince: "เชียงใหม่", monthlyFee: 135000, slotId: "N01", zoneId: z,
       vehicleType: "suv", carColor: "#112233", dueDay: 17, startMonth: 3, note: "หมายเหตุ", kind: "normal",
@@ -89,7 +89,7 @@ describe("payment method and a full round trip of every ledger field", () => {
     expect(d).toMatchObject({ owner_name: "ครบทุกฟิลด์", plate_province: "เชียงใหม่", monthly_fee: 135000, slot_id: "N01", zone_id: z, vehicle_type: "suv", car_color: "#112233", due_day: 17, start_month: 3, end_month: 11, needs_review: true });
     expect(d.fee_changes).toEqual([{ month: 6, fee: 140000 }]);
     const zone = (await admin.get("/data")).json.zones.find((x: any) => x.id === z);
-    expect(zone).toMatchObject({ name: "โซนเต็มฟิลด์", access: "private", slotIds: ["N01", "N02"], description: "ทดสอบ", isActive: true });
+    expect(zone).toMatchObject({ name: "โซนเต็มฟิลด์", access: "public", slotIds: ["N01", "N02"], description: "ทดสอบ", isActive: true });
     // the customer made for the row is linked, and is the same person everywhere
     const cust = (await admin.get("/data")).json.customers.find((c: any) => c.id === row.customerId);
     expect(cust.name).toBe("ครบทุกฟิลด์");

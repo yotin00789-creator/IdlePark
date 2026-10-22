@@ -7,7 +7,8 @@ import { loadSavings, loadYears, rowFromDb } from "../data.js";
 import type { Queryable } from "../db.js";
 import { HttpError, intOrNull, route, str } from "../http.js";
 import { resolvePlacement } from "../placement.js";
-import { baysIn, isHexColor, isMotorcycle, isSlotId, isStorageSlot, isVehicleType, slotLabel } from "../../shared/lot.js";
+import { loadStorage } from "../storage.js";
+import { STORAGE_SLOT, setStorageSlots, baysIn, isHexColor, isMotorcycle, isSlotId, isStorageSlot, isVehicleType, slotLabel } from "../../shared/lot.js";
 
 const EDIT = ["admin", "editor"] as const;
 const ADMIN = ["admin"] as const;
@@ -51,13 +52,14 @@ route("GET", "/data", "user", async (c) => {
     getSettings(c.db),
     c.db.query("select max(sent_at) as at from reminder_log"),
   ]);
+  setStorageSlots(zones.filter((r) => r.kind === "storage").flatMap((r) => r.slot_ids as string[]));
   return {
     today,
     years,
     savings: sv.savings,
     savingsNotes: sv.notes,
     customers: customers.map((r) => ({ id: r.id, name: r.name, phone: r.phone, email: r.email, note: r.note, isActive: r.is_active, isOwner: Boolean(r.is_owner) })),
-    zones: zones.map((r) => ({ id: r.id, name: r.name, description: r.description, access: r.access, slotIds: r.slot_ids ?? [], motoCapacity: r.moto_capacity, capacity: r.capacity, defaultFee: r.default_fee, sortOrder: r.sort_order, isActive: r.is_active })),
+    zones: zones.map((r) => ({ id: r.id, name: r.name, description: r.description, access: r.access, kind: r.kind, slotIds: r.slot_ids ?? [], motoCapacity: r.moto_capacity, capacity: r.capacity, defaultFee: r.default_fee, sortOrder: r.sort_order, isActive: r.is_active })),
     accounts: accounts.map((r) => ({ id: r.id, bank: r.bank, masked: maskAccount(decrypt(r.number_enc)), holder: r.holder, label: r.label, shows: r.shows })),
     settings,
     lastReminderAt: lastRun[0]?.at ?? null,
@@ -87,7 +89,7 @@ route("PUT", "/ledger/payments", EDIT as any, async (c) => {
     for (const ch of parsed) {
       const [row] = await q.query("select id, year, owner_name, plate, is_owner from ledger_rows where id = $1", [ch.rowId]);
       if (!row) throw new HttpError(404, "ไม่พบแถวที่แก้ไข");
-      if (row.is_owner && (ch.amount ?? 0) > 0) throw new HttpError(400, `${row.owner_name} เป็นเจ้าของ ไม่คิดเงิน จึงบันทึกยอดชำระไม่ได้`);
+      if (row.is_owner && (ch.amount ?? 0) > 0) throw new HttpError(400, `${row.owner_name} ไม่คิดเงิน (เจ้าของหรืออยู่ช่องส่วนตัว Private) จึงบันทึกยอดชำระไม่ได้`);
       const [prev] = await q.query("select amount, method, account_id from payments where row_id = $1 and month = $2", [ch.rowId, ch.month]);
       const before = prev ? (prev.amount as number | null) : null;
       // the method stays as it was unless the caller says otherwise; a transfer may name the account, cash never does
@@ -183,9 +185,33 @@ async function ensureCustomer(q: Queryable, name: string): Promise<number> {
 /** monthly or yearly: what the form says, else yearly for the storage shed and monthly for everything else. */
 const billingOf = (b: any, slotId: string | null | undefined) => (b?.billing === "yearly" || b?.billing === "monthly" ? (b.billing as string) : isStorageSlot(slotId) ? "yearly" : "monthly");
 
+/** A vehicle costs nothing when its customer is the owner, or when it stands in a Private zone (reserved, never rented). */
+async function noRent(q: Queryable, customerId: number | null, zoneId: number | null): Promise<boolean> {
+  const [r] = await q.query<{ v: boolean }>(
+    "select (coalesce((select is_owner from customers where id = $1), false) or coalesce((select access = 'private' from zones where id = $2), false)) as v",
+    [customerId, zoneId],
+  );
+  return Boolean(r?.v);
+}
+
+/** A row that stops being free (left the Private zone / owner) and has no price yet starts at the default price. */
+async function syncZoneNoRent(q: Queryable, zoneId: number) {
+  const settings = await getSettings(q);
+  const y = bangkokToday().year;
+  await q.query(
+    `update ledger_rows r set is_owner = w.v, monthly_fee = case when not w.v and r.monthly_fee = 0 then $3 else r.monthly_fee end
+       from (select r2.id, (coalesce(c.is_owner, false) or z.access = 'private') as v
+               from ledger_rows r2 join zones z on z.id = r2.zone_id left join customers c on c.id = r2.customer_id
+              where r2.zone_id = $1 and r2.year >= $2) w
+      where w.id = r.id and r.is_owner is distinct from w.v`,
+    [zoneId, y, settings.monthlyFeeDefault],
+  );
+}
+
 /** The same plate twice in one year is almost always the same car added twice (which would start it with no payments). */
 async function refuseDuplicatePlate(q: Queryable, year: number, plate: string, slotId: string | null) {
   const norm = plate.replace(/\s+/g, "").toUpperCase();
+  await loadStorage(q);
   if (!norm || isStorageSlot(slotId)) return;
   const [dup] = await q.query(
     "select id, owner_name, slot_id from ledger_rows where year = $1 and replace(upper(plate), ' ', '') = $2 limit 1",
@@ -196,13 +222,12 @@ async function refuseDuplicatePlate(q: Queryable, year: number, plate: string, s
 
 async function insertRow(q: Queryable, f: { year: number; customerId: number; ownerName: string; plate: string; zoneId: number | null; kind: string; bulkCount: number; fee: number; startMonth: number; note: string; body: any }) {
   const lot = lotFields(f.body);
-  const [who] = await q.query("select is_owner from customers where id = $1", [f.customerId]);
-  const owner = Boolean(who?.is_owner); // an owner's vehicle never costs anything
   await refuseDuplicatePlate(q, f.year, f.plate, lot.slot_id);
   const place = await resolvePlacement(q, {
     year: f.year, rowId: null, vehicleType: lot.vehicle_type, zoneId: f.zoneId, slotId: lot.slot_id,
     bay: f.body.bay == null ? null : Number(f.body.bay), startMonth: f.startMonth, endMonth: null, counts: true,
   });
+  const owner = await noRent(q, f.customerId, place.zone_id); // an owner's vehicle, or one in a Private zone, never costs anything
   const [{ n }] = await q.query<{ n: number }>("select coalesce(max(sort_order), -1)::int + 1 as n from ledger_rows where year = $1", [f.year]);
   const [r] = await q.query(
     `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, start_month, note,
@@ -301,8 +326,6 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
         swapped = occ;
       }
     }
-    const [custRow] = customerId == null ? [] : await q.query("select is_owner from customers where id = $1", [customerId]);
-    const ownerFlag = customerId == null ? Boolean(cur.is_owner) : Boolean(custRow?.is_owner);
     const place = await resolvePlacement(q, {
       year: cur.year, rowId: id, vehicleType: n.vehicle_type, zoneId: n.zone_id, slotId: n.slot_id,
       bay: b.bay !== undefined ? (b.bay === null ? null : Number(b.bay)) : n.slot_id === cur.slot_id && n.vehicle_type === cur.vehicle_type && n.zone_id === cur.zone_id ? cur.bay : null,
@@ -311,6 +334,13 @@ route("PATCH", "/ledger/rows/:id", EDIT as any, async (c) => {
     n.slot_id = place.slot_id;
     n.zone_id = place.zone_id;
     n.bay = place.bay;
+    // a row that stays where it is keeps its flag (a paying tenant who was already in a Private zone is not switched off behind their back)
+    const ownerFlag = n.zone_id === cur.zone_id && customerId === cur.customer_id ? Boolean(cur.is_owner) : await noRent(q, customerId, n.zone_id);
+    if (ownerFlag && !cur.is_owner) {
+      const [paid] = await q.query("select 1 from payments where row_id = $1 and amount > 0 limit 1", [id]);
+      if (paid) throw new HttpError(409, `${n.owner_name} มียอดชำระแล้ว แต่ช่อง/โซนนี้ไม่คิดเงิน (เจ้าของหรือ Private) ย้ายไปช่องอื่น หรือเอายอดชำระออกก่อน เพื่อไม่ให้ยอดรวมเปลี่ยนโดยไม่รู้ตัว`);
+    }
+    if (!ownerFlag && cur.is_owner && n.monthly_fee === 0) n.monthly_fee = (await getSettings(q)).monthlyFeeDefault;
     await q.query(
       `update ledger_rows set owner_name=$2, plate=$3, zone_id=$4, kind=$5, monthly_fee=$6, is_active=$7, needs_review=$8,
          note=$9, start_month=$10, end_month=$11, paid_through_year=$12, paid_through_month=$13, sort_order=$14,
@@ -522,7 +552,7 @@ route("PATCH", "/customers/:id", EDIT as any, async (c) => {
   await c.db.tx(async (q) => {
     await q.query("update customers set name=$2, phone=$3, email=$4, note=$5, is_active=$6, is_owner=$7 where id=$1", [id, n.name, n.phone, n.email, n.note, n.is_active, n.is_owner]);
     // owner or not applies to every vehicle of the customer, in every year
-    if (n.is_owner !== cur.is_owner) await q.query("update ledger_rows set is_owner = $2 where customer_id = $1", [id, n.is_owner]);
+    if (n.is_owner !== cur.is_owner) await q.query("update ledger_rows set is_owner = ($2 or coalesce((select access = 'private' from zones z where z.id = ledger_rows.zone_id), false)) where customer_id = $1", [id, n.is_owner]);
     if (cur.is_owner && !n.is_owner) {
       // no longer an owner: vehicles that had no price get the default price, so they start paying like everyone else
       const settings = await getSettings(q);
@@ -599,25 +629,55 @@ route("POST", "/ledger/due-day/reset", ADMIN as any, async (c) => {
 const zoneBody = (b: any, cur?: Record<string, any>) => {
   const slots: unknown = b.slotIds === undefined ? (cur?.slot_ids ?? []) : b.slotIds;
   if (!Array.isArray(slots) || slots.some((x) => !isSlotId(x))) throw new HttpError(400, "รายการช่องจอดไม่ถูกต้อง");
-  const moto = b.motoCapacity === undefined ? (cur?.moto_capacity ?? 0) : Math.max(0, Math.round(Number(b.motoCapacity)) || 0);
+  const kind = (b.kind === undefined ? (cur?.kind ?? "parking") : b.kind) as string;
+  if (kind !== "parking" && kind !== "storage") throw new HttpError(400, "ชนิดโซนไม่ถูกต้อง");
+  // a storage zone has no price per slot, no motorcycles and is never Private: it is just where the sheds are
+  const moto = kind === "storage" ? 0 : b.motoCapacity === undefined ? (cur?.moto_capacity ?? 0) : Math.max(0, Math.round(Number(b.motoCapacity)) || 0);
   return {
+    kind,
     name: str(b.name ?? cur?.name ?? "", 80),
     description: str(b.description ?? cur?.description ?? "", 200),
     capacity: b.capacity === undefined ? (cur?.capacity ?? null) : b.capacity == null || b.capacity === "" ? null : Math.max(0, Math.round(Number(b.capacity)) || 0),
     defaultFee: b.defaultFee === undefined ? (cur?.default_fee ?? null) : money(b.defaultFee),
     isActive: b.isActive === undefined ? (cur?.is_active ?? true) : Boolean(b.isActive),
-    access: (b.access === undefined ? (cur?.access ?? "public") : b.access) as string,
+    access: (kind === "storage" ? "public" : b.access === undefined ? (cur?.access ?? "public") : b.access) as string,
     slotIds: [...new Set(slots as string[])],
     motoCapacity: moto,
   };
 };
 
 /** Rules a zone must keep: unique slots across zones, motorcycle quota that fits, nobody evicted. */
-async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof zoneBody>): Promise<{ id: number; name: string; slots: string[]; rest: string[] }[]> {
+async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof zoneBody>, cur?: Record<string, any>): Promise<{ id: number; name: string; slots: string[]; rest: string[] }[]> {
   if (!z.name) throw new HttpError(400, "กรุณากรอกชื่อโซน");
+  const today = bangkokToday().year;
+  // which slots turn into sheds / stop being sheds with this change
+  const wasStorage: string[] = cur?.kind === "storage" ? (cur.slot_ids as string[]) : [];
+  const nowStorage: string[] = z.kind === "storage" ? z.slotIds : [];
+  const becoming = nowStorage.filter((x) => !wasStorage.includes(x));
+  if (becoming.length) {
+    const [v] = await q.query("select owner_name, plate, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active and vehicle_type is not null limit 1", [becoming, today]);
+    if (v) throw new HttpError(409, `${slotLabel(v.slot_id)} มี ${v.owner_name}${v.plate ? ` (${v.plate})` : ""} จอดอยู่ เปลี่ยนเป็นคลังเก็บของไม่ได้ ย้ายรถไปช่องอื่นก่อน`);
+  }
+  const leaving = wasStorage.filter((x) => !nowStorage.includes(x));
+  if (leaving.includes(STORAGE_SLOT)) throw new HttpError(409, "คลังเก็บของหลังเดิม (ในโมเดลบ้าน) เปลี่ยนเป็นที่จอดรถไม่ได้");
+  if (leaving.length) {
+    const [v] = await q.query("select owner_name, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active limit 1", [leaving, today]);
+    if (v) throw new HttpError(409, `${slotLabel(v.slot_id)} มี ${v.owner_name} เช่าคลังอยู่ เปลี่ยนเป็นที่จอดรถไม่ได้ ให้ผู้เช่าเลิกเช่าหรือย้ายก่อน`);
+  }
+  if (z.kind === "parking" && z.slotIds.includes(STORAGE_SLOT)) throw new HttpError(409, "คลังเก็บของหลังเดิม (ในโมเดลบ้าน) ต้องอยู่ในโซนคลังเก็บของ");
+  // a Private zone is not rented: whoever pays rent now cannot be moved in without their payments disappearing from the totals
+  if (z.access === "private") {
+    const [v] = await q.query(
+      `select owner_name, plate from ledger_rows r
+        where (r.zone_id = $1 or r.slot_id = any($2::text[])) and r.year >= $3 and not r.is_owner
+          and exists (select 1 from payments p where p.row_id = r.id and p.amount > 0) limit 1`,
+      [id ?? 0, z.slotIds, today],
+    );
+    if (v) throw new HttpError(409, `${v.owner_name}${v.plate ? ` (${v.plate})` : ""} มียอดชำระค่าเช่าแล้ว ย้ายเข้าโซน Private (ไม่คิดเงิน) ไม่ได้ ย้ายรถไปช่องอื่นก่อน`);
+  }
   if (z.access !== "public" && z.access !== "private") throw new HttpError(400, "ชนิดโซนไม่ถูกต้อง");
   // a slot picked here that sits in another zone is moved over (the other zone loses it)
-  const others = await q.query("select id, name, slot_ids, moto_capacity from zones where id <> $1", [id ?? 0]);
+  const others = await q.query("select id, name, slot_ids, moto_capacity, kind from zones where id <> $1", [id ?? 0]);
   const takes: { id: number; name: string; slots: string[]; rest: string[]; motoCapacity: number }[] = [];
   for (const o of others) {
     const slots = (o.slot_ids as string[]).filter((s) => z.slotIds.includes(s));
@@ -628,6 +688,15 @@ async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof z
       const used = await q.query("select owner_name from ledger_rows where zone_id = $1 and slot_id = any($2::text[]) and is_active limit 1", [o.id, slots]);
       if (used.length) throw new HttpError(409, `${used[0].owner_name} จอดมอเตอร์ไซค์อยู่ในช่องที่จะย้าย`);
     }
+    if (o.kind === "storage" && z.kind !== "storage") {
+      if (slots.includes(STORAGE_SLOT)) throw new HttpError(409, "คลังเก็บของหลังเดิม (ในโมเดลบ้าน) เปลี่ยนเป็นที่จอดรถไม่ได้");
+      const [v] = await q.query("select owner_name, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active limit 1", [slots, today]);
+      if (v) throw new HttpError(409, `${slotLabel(v.slot_id)} มี ${v.owner_name} เช่าคลังอยู่ เปลี่ยนเป็นที่จอดรถไม่ได้`);
+    }
+    if (o.kind !== "storage" && z.kind === "storage") {
+      const [v] = await q.query("select owner_name, plate, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active and vehicle_type is not null limit 1", [slots, today]);
+      if (v) throw new HttpError(409, `${slotLabel(v.slot_id)} มี ${v.owner_name}${v.plate ? ` (${v.plate})` : ""} จอดอยู่ เปลี่ยนเป็นคลังเก็บของไม่ได้`);
+    }
     takes.push({ id: o.id, name: o.name, slots, rest, motoCapacity: o.moto_capacity });
   }
     if (z.motoCapacity > 0) {
@@ -636,7 +705,6 @@ async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof z
     if (z.motoCapacity > room) throw new HttpError(400, `ช่องที่เลือกจอดมอเตอร์ไซค์ได้สูงสุด ${room} คัน (ห่างกันคันละ 1 เมตร) ลดจำนวนหรือเพิ่มช่อง`);
   }
   if (id != null) {
-    const today = bangkokToday().year;
     const held = await q.query(
       "select id, owner_name, plate, slot_id, vehicle_type from ledger_rows where zone_id = $1 and year = $2 and is_active",
       [id, today],
@@ -657,7 +725,7 @@ async function applyTakes(q: Queryable, takes: { id: number; rest: string[] }[])
 }
 const movedNote = (takes: { name: string; slots: string[] }[]) => (takes.length ? ` · ย้าย ${takes.map((t) => `${t.slots.map(slotLabel).join(", ")} จากโซน ${t.name}`).join("; ")}` : "");
 
-const zonePick = (z: ReturnType<typeof zoneBody>) => ({ name: z.name, access: z.access, isActive: z.isActive, slotIds: z.slotIds, motoCapacity: z.motoCapacity, capacity: z.capacity, defaultFee: z.defaultFee });
+const zonePick = (z: ReturnType<typeof zoneBody>) => ({ name: z.name, kind: z.kind, access: z.access, isActive: z.isActive, slotIds: z.slotIds, motoCapacity: z.motoCapacity, capacity: z.capacity, defaultFee: z.defaultFee });
 
 route("POST", "/zones", EDIT as any, async (c) => {
   const z = zoneBody(await c.json());
@@ -666,13 +734,15 @@ route("POST", "/zones", EDIT as any, async (c) => {
     await applyTakes(q, takes);
     const [{ n }] = await q.query<{ n: number }>("select coalesce(max(sort_order), -1)::int + 1 as n from zones");
     const [row] = await q.query(
-      "insert into zones (name, description, capacity, default_fee, is_active, sort_order, access, slot_ids, moto_capacity) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) returning id",
-      [z.name, z.description, z.capacity, z.defaultFee, z.isActive, n, z.access, JSON.stringify(z.slotIds), z.motoCapacity],
+      "insert into zones (name, description, capacity, default_fee, is_active, sort_order, access, slot_ids, moto_capacity, kind) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10) returning id",
+      [z.name, z.description, z.capacity, z.defaultFee, z.isActive, n, z.access, JSON.stringify(z.slotIds), z.motoCapacity, z.kind],
     );
     if (z.slotIds.length) await q.query("update ledger_rows set zone_id = $1 where slot_id = any($2::text[]) and (zone_id is distinct from $1)", [row.id, z.slotIds]);
+    await syncZoneNoRent(q, row.id);
     await audit(c, { action: "zone.create", entity: "zone", entityId: row.id, summary: `เพิ่มโซน ${z.name} (${z.slotIds.length} ช่อง)${movedNote(takes)}`, after: zonePick(z) }, q);
     return row;
   });
+  await loadStorage(c.db);
   return { id: r.id };
 });
 
@@ -682,23 +752,26 @@ route("PATCH", "/zones/:id", EDIT as any, async (c) => {
   if (!cur) throw new HttpError(404, "ไม่พบโซน");
   const z = zoneBody(await c.json(), cur);
   await c.db.tx(async (q) => {
-    const takes = await checkZone(q, id, z);
+    const takes = await checkZone(q, id, z, cur);
     await applyTakes(q, takes);
     await q.query(
-      "update zones set name=$2, description=$3, capacity=$4, default_fee=$5, is_active=$6, access=$7, slot_ids=$8::jsonb, moto_capacity=$9 where id=$1",
-      [id, z.name, z.description, z.capacity, z.defaultFee, z.isActive, z.access, JSON.stringify(z.slotIds), z.motoCapacity],
+      "update zones set name=$2, description=$3, capacity=$4, default_fee=$5, is_active=$6, access=$7, slot_ids=$8::jsonb, moto_capacity=$9, kind=$10 where id=$1",
+      [id, z.name, z.description, z.capacity, z.defaultFee, z.isActive, z.access, JSON.stringify(z.slotIds), z.motoCapacity, z.kind],
     );
     // rows already sitting in a slot that now belongs to this zone follow it (the zone name shows everywhere)
     if (z.slotIds.length) await q.query("update ledger_rows set zone_id = $1 where slot_id = any($2::text[]) and (zone_id is distinct from $1)", [id, z.slotIds]);
+    // Private / not Private: the rent of the vehicles in this zone follows
+    await syncZoneNoRent(q, id);
     await audit(c, {
       action: "zone.update",
       entity: "zone",
       entityId: id,
       summary: `แก้ไขโซน ${z.name}${z.name !== cur.name ? ` (เดิม ${cur.name})` : ""}${cur.is_active !== z.isActive ? (z.isActive ? " · เปิดใช้งาน" : " · ปิดใช้งาน") : ""}${movedNote(takes)}`,
-      before: { name: cur.name, access: cur.access, isActive: cur.is_active, slotIds: cur.slot_ids, motoCapacity: cur.moto_capacity, capacity: cur.capacity, defaultFee: cur.default_fee },
+      before: { name: cur.name, kind: cur.kind, access: cur.access, isActive: cur.is_active, slotIds: cur.slot_ids, motoCapacity: cur.moto_capacity, capacity: cur.capacity, defaultFee: cur.default_fee },
       after: zonePick(z),
     }, q);
   });
+  await loadStorage(c.db);
   return { ok: true };
 });
 
@@ -711,7 +784,54 @@ route("DELETE", "/zones/:id", EDIT as any, async (c) => {
     await q.query("delete from zones where id = $1", [id]);
     await audit(c, { action: "zone.delete", entity: "zone", entityId: id, summary: `ลบโซน ${cur.name} (${held.length} แถวถูกตั้งเป็น “ไม่ระบุโซน”)`, before: { name: cur.name, snapshot: { zone: cur, rowIds: held.map((r) => r.id) } } }, q);
   });
+  await loadStorage(c.db);
   return { ok: true, detached: held.length, restorable: true };
+});
+
+// ---------------------------------------------------------- slot: parking or storage
+
+/** Every slot can be a parking space or a storage shed. A shed lives in a zone of kind "storage" (made on first use). */
+route("PUT", "/slots/:id/kind", EDIT as any, async (c) => {
+  const slot = c.params.id;
+  if (!isSlotId(slot)) throw new HttpError(400, "ช่องจอดไม่ถูกต้อง");
+  const b = await c.json();
+  const kind = b.kind === "storage" ? "storage" : b.kind === "parking" ? "parking" : null;
+  if (!kind) throw new HttpError(400, "เลือกว่าเป็นที่จอดรถหรือคลังเก็บของ");
+  const today = bangkokToday().year;
+  const out = await c.db.tx(async (q) => {
+    const zones = await q.query("select * from zones order by sort_order, id");
+    const holder = zones.find((z) => (z.slot_ids as string[]).includes(slot));
+    const isShed = holder?.kind === "storage" || slot === STORAGE_SLOT;
+    if (kind === "storage" && holder && holder.moto_capacity > 0) throw new HttpError(409, `${slotLabel(slot)} อยู่ในโซนมอเตอร์ไซค์ “${holder.name}” เปลี่ยนเป็นคลังเก็บของไม่ได้`);
+    if (kind === "storage") {
+      if (isShed) return { changed: false, zone: holder?.name ?? "คลังเก็บของ" };
+      const [v] = await q.query("select owner_name, plate from ledger_rows where slot_id = $1 and year >= $2 and is_active and vehicle_type is not null limit 1", [slot, today]);
+      if (v) throw new HttpError(409, `${slotLabel(slot)} มี ${v.owner_name}${v.plate ? ` (${v.plate})` : ""} จอดอยู่ ย้ายรถไปช่องอื่นก่อนจึงเปลี่ยนเป็นคลังเก็บของได้`);
+      let target: Record<string, any> = zones.find((z) => z.kind === "storage" && z.is_active) as Record<string, any>;
+      if (!target) {
+        const [n] = await q.query<{ n: number }>("select coalesce(max(sort_order), -1)::int + 1 as n from zones");
+        target = (await q.query(
+          "insert into zones (name, description, sort_order, kind, slot_ids) values ('คลังเก็บของ', 'ช่องที่เป็นคลังเก็บของ เช่ากันปีละครั้ง', $1, 'storage', $2::jsonb) returning *",
+          [n.n, JSON.stringify(zones.some((z) => (z.slot_ids as string[]).includes(STORAGE_SLOT)) ? [] : [STORAGE_SLOT])], // the shed built into the model joins it too
+        ))[0];
+      }
+      if (holder) await q.query("update zones set slot_ids = $2::jsonb where id = $1", [holder.id, JSON.stringify((holder.slot_ids as string[]).filter((x) => x !== slot))]);
+      await q.query("update zones set slot_ids = $2::jsonb where id = $1", [target.id, JSON.stringify([...(target.slot_ids as string[]), slot])]);
+      await q.query("update ledger_rows set zone_id = $1 where slot_id = $2 and year >= $3", [target.id, slot, today]);
+      await audit(c, { action: "slot.kind", entity: "slot", entityId: slot, summary: `ตั้ง ${`ช่อง ${slot}`} เป็นคลังเก็บของ (โซน ${target.name}${holder ? `, ย้ายจากโซน ${holder.name}` : ""})`, before: { kind: "parking", zone: holder?.name ?? null }, after: { kind: "storage", zone: target.name } }, q);
+      return { changed: true, zone: target.name as string };
+    }
+    if (slot === STORAGE_SLOT) throw new HttpError(409, "คลังเก็บของหลังเดิม (ในโมเดลบ้าน) เปลี่ยนเป็นที่จอดรถไม่ได้");
+    if (!isShed) return { changed: false, zone: holder?.name ?? null };
+    const [v] = await q.query("select owner_name from ledger_rows where slot_id = $1 and year >= $2 and is_active limit 1", [slot, today]);
+    if (v) throw new HttpError(409, `${v.owner_name} เช่าคลังนี้อยู่ ให้เลิกเช่าหรือย้ายก่อนจึงเปลี่ยนเป็นที่จอดรถได้`);
+    await q.query("update zones set slot_ids = $2::jsonb where id = $1", [holder!.id, JSON.stringify((holder!.slot_ids as string[]).filter((x) => x !== slot))]);
+    await q.query("update ledger_rows set zone_id = null where slot_id = $1 and year >= $2", [slot, today]);
+    await audit(c, { action: "slot.kind", entity: "slot", entityId: slot, summary: `ตั้ง ช่อง ${slot} กลับเป็นที่จอดรถ (ออกจากโซน ${holder!.name})`, before: { kind: "storage", zone: holder!.name }, after: { kind: "parking", zone: null } }, q);
+    return { changed: true, zone: null };
+  });
+  await loadStorage(c.db);
+  return out;
 });
 
 // ------------------------------------------------------- restore deleted things
@@ -745,8 +865,8 @@ route("POST", "/audit/:id/restore", EDIT as any, async (c) => {
       const lost = (z.slot_ids as string[]).filter((s) => taken.has(s));
       const motoCap = Math.min(z.moto_capacity ?? 0, baysIn(keep));
       await q.query(
-        "insert into zones (id, name, description, capacity, default_fee, is_active, sort_order, access, slot_ids, moto_capacity) values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)",
-        [z.id, z.name, z.description ?? "", z.capacity, z.default_fee, z.is_active, z.sort_order ?? 0, z.access ?? "public", JSON.stringify(keep), motoCap],
+        "insert into zones (id, name, description, capacity, default_fee, is_active, sort_order, access, slot_ids, moto_capacity, kind) values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)",
+        [z.id, z.name, z.description ?? "", z.capacity, z.default_fee, z.is_active, z.sort_order ?? 0, z.access ?? "public", JSON.stringify(keep), motoCap, z.kind ?? "parking"],
       );
       const ids: number[] = snap.rowIds ?? [];
       if (ids.length) await q.query("update ledger_rows set zone_id = $1 where id = any($2::int[]) and zone_id is null", [z.id, ids]);

@@ -6,6 +6,7 @@ import Sheet from "@/components/app/Sheet";
 import { savePayments, useData, type PaymentChange } from "@/lib/dataStore";
 import { modeFields, payMode } from "@/lib/payMode";
 import { formatBaht, monthName, parseBaht } from "@/lib/format";
+import { setExcluded } from "@/lib/ledgerActions";
 import { toast } from "@/lib/toast";
 import { cn } from "@/utils";
 import { useState } from "react";
@@ -110,7 +111,16 @@ function MonthSheet({ row, year, today, editable, onClose, onEditRow }: MonthShe
         )
       }
     >
-      {row.isOwner && <p className="rounded-lg bg-blue-50 px-4 py-3 text-theme-sm text-blue-800 dark:bg-blue-500/10 dark:text-blue-300">รถของเจ้าของ ไม่คิดค่าเช่า ไม่แจ้งค้างชำระ และไม่นับในยอด จึงไม่มียอดชำระให้กรอก</p>}
+      {editable && row.kind !== "bulk" && (
+        <label className="mb-3 flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-2.5 dark:border-gray-700">
+          <input type="checkbox" checked={row.kind === "excluded"} onChange={(e) => void setExcluded(row, e.target.checked)} className="mt-0.5 size-5 cursor-pointer rounded border-gray-300 accent-brand-500" />
+          <span>
+            <span className="block text-theme-sm font-medium text-gray-800 dark:text-white/90">ไม่รวมในบัญชี</span>
+            <span className="block text-theme-xs text-gray-500 dark:text-gray-400">ติ๊กแล้วยังบันทึกการเก็บเงินได้เหมือนเดิม แต่ไม่นับในยอดรวม</span>
+          </span>
+        </label>
+      )}
+      {row.isOwner && <p className="rounded-lg bg-blue-50 px-4 py-3 text-theme-sm text-blue-800 dark:bg-blue-500/10 dark:text-blue-300">ไม่คิดค่าเช่า (เจ้าของหรือช่องส่วนตัว Private) ไม่แจ้งค้างชำระ และไม่นับในยอด จึงไม่มียอดชำระให้กรอก</p>}
       <div className={cn("grid gap-3", row.isOwner ? "hidden" : isYearly(row) ? "grid-cols-1" : "grid-cols-2")}>
         {Array.from({ length: 12 }, (_, i) => {
           const m = i + 1;

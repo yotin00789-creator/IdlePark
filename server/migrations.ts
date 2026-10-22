@@ -307,4 +307,17 @@ alter table customers add column is_owner boolean not null default false;
 alter table ledger_rows add column is_owner boolean not null default false;
 `,
   },
+  {
+    id: 9,
+    name: "storage_zones",
+    sql: `
+-- a zone is either parking or storage: every slot of a storage zone is a storage shed (rented yearly, holds no car)
+alter table zones add column kind text not null default 'parking' check (kind in ('parking','storage'));
+-- the shed that is built into the model (K01) belongs to a storage zone, created here when there are zones already
+update zones set slot_ids = (select coalesce(jsonb_agg(v), '[]'::jsonb) from jsonb_array_elements(slot_ids) v where v <> '"K01"'::jsonb);
+insert into zones (name, description, sort_order, kind, slot_ids)
+  select 'คลังเก็บของ', 'ช่องที่เป็นคลังเก็บของ เช่ากันปีละครั้ง (เปลี่ยนช่องเป็นคลังได้จากผังที่จอด 3 มิติ)', coalesce(max(sort_order), 0) + 1, 'storage', '["K01"]'::jsonb from zones having count(*) > 0;
+update ledger_rows set zone_id = (select id from zones where kind = 'storage' order by id limit 1) where slot_id = 'K01' and exists (select 1 from zones where kind = 'storage');
+`,
+  },
 ];

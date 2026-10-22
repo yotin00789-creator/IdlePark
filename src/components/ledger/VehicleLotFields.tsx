@@ -1,7 +1,7 @@
 import { SelectField, TextField } from "@/components/app/Field";
 import { cn } from "@/utils";
 import { useData, type Zone } from "@/lib/dataStore";
-import { CAR_COLORS, SLOT_IDS, STORAGE_SLOT, VEHICLE_TYPES, isMotorcycle, isStorageSlot, slotLabel } from "../../../shared/lot";
+import { CAR_COLORS, SLOT_IDS, VEHICLE_TYPES, getStorageSlots, isMotorcycle, isStorageSlot, slotLabel } from "../../../shared/lot";
 
 export interface LotFieldsValue {
   zoneId: string;
@@ -82,7 +82,7 @@ export default function VehicleLotFields({ value, onChange, year, exceptRowId, t
         </div>
       ) : (
         <div className="space-y-4">
-          <SelectField label="ช่องจอด / คลังเก็บของ" value={value.slotId} onChange={(e) => setSlot(e.target.value)}>
+          <SelectField label="ช่องจอด" value={value.slotId} onChange={(e) => setSlot(e.target.value)}>
             <option value="">ยังไม่ระบุช่อง</option>
             {SLOT_IDS.filter((id) => !isStorageSlot(id)).map((id) => {
               const z = zoneOfSlot(id);
@@ -144,20 +144,26 @@ export default function VehicleLotFields({ value, onChange, year, exceptRowId, t
 }
 
 
-/** "What is rented": a parking space (car / motorcycle, monthly) or the storage shed (one only, yearly). Once the shed is rented it cannot be picked again. */
+/** "What is rented": a parking space (car / motorcycle, monthly) or a storage shed (yearly). A shed has one renter, so only free sheds can be picked. */
 export function RentKindPicker({ value, onChange, year, exceptRowId, taken }: Props) {
   const { data } = useData();
   const zones = data?.zones ?? [];
   const rows = (data?.years.find((y) => y.year === year)?.rows ?? []).filter((r) => r.isActive && r.id !== exceptRowId);
-  const storageHolder = taken?.get(STORAGE_SLOT) ?? rows.find((r) => isStorageSlot(r.slotId))?.ownerName ?? "";
+  const sheds = getStorageSlots();
+  const holderOf = (id: string) => taken?.get(id) ?? rows.find((r) => r.slotId === id)?.ownerName ?? "";
+  const free = sheds.filter((id) => !holderOf(id));
   const storage = isStorageSlot(value.slotId);
-  const zoneOfShed = zones.find((z) => z.slotIds.includes(STORAGE_SLOT));
+  const zoneOf = (id: string) => zones.find((z) => z.slotIds.includes(id));
+  const pickShed = (id: string) => onChange({ slotId: id, vehicleType: "", zoneId: String(zoneOf(id)?.id ?? "") });
+  const noShed = free.length === 0;
+  const hint = noShed ? `ทุกคลังมีผู้เช่าแล้ว (${sheds.length} คลัง)` : `ว่าง ${free.length} จาก ${sheds.length} คลัง · จ่ายปีละครั้ง`;
   return (
+    <div className="space-y-3">
       <div>
         <span className="mb-1.5 block text-theme-sm font-medium text-gray-700 dark:text-gray-300">สิ่งที่เช่า</span>
         <div role="radiogroup" aria-label="สิ่งที่เช่า" className="grid grid-cols-2 gap-2">
-          {([[false, "ที่จอดรถ", "รถยนต์ / มอเตอร์ไซค์ · จ่ายรายเดือน"], [true, "คลังเก็บของ", storageHolder ? `มีผู้เช่าแล้ว: ${storageHolder}` : "มีคลังเดียว · จ่ายปีละครั้ง"]] as const).map(([isStorage, label, hint]) => {
-            const blocked = isStorage && Boolean(storageHolder) && !storage;
+          {([[false, "ที่จอดรถ", "รถยนต์ / มอเตอร์ไซค์ · จ่ายรายเดือน"], [true, "คลังเก็บของ", hint]] as const).map(([isStorage, label, sub]) => {
+            const blocked = isStorage && noShed && !storage;
             return (
               <button
                 key={label}
@@ -165,16 +171,26 @@ export function RentKindPicker({ value, onChange, year, exceptRowId, taken }: Pr
                 role="radio"
                 aria-checked={storage === isStorage}
                 disabled={blocked}
-                onClick={() => (isStorage ? onChange({ slotId: STORAGE_SLOT, vehicleType: "", zoneId: String(zoneOfShed?.id ?? "") }) : storage && onChange({ slotId: "", zoneId: "" }))}
+                onClick={() => (isStorage ? !storage && pickShed(free[0]) : storage && onChange({ slotId: "", zoneId: "" }))}
                 className={cn("rounded-lg border px-3 py-2.5 text-start", storage === isStorage ? "border-brand-500 bg-brand-25 dark:bg-brand-500/10" : "border-gray-200 dark:border-gray-700", blocked ? "cursor-not-allowed opacity-55" : storage !== isStorage && "hover:bg-gray-50 dark:hover:bg-white/5")}
               >
                 <span className="block text-theme-sm font-medium text-gray-800 dark:text-white/90">{label}</span>
-                <span className="block text-theme-xs text-gray-500 dark:text-gray-400">{hint}</span>
+                <span className="block text-theme-xs text-gray-500 dark:text-gray-400">{sub}</span>
               </button>
             );
           })}
         </div>
       </div>
+      {storage && sheds.length > 1 && (
+        <SelectField label="คลังที่เช่า" value={value.slotId} onChange={(e) => pickShed(e.target.value)}>
+          {sheds.map((id) => (
+            <option key={id} value={id} disabled={Boolean(holderOf(id)) && id !== value.slotId}>
+              {slotLabel(id)}{holderOf(id) && id !== value.slotId ? ` · ${holderOf(id)}` : ""}
+            </option>
+          ))}
+        </SelectField>
+      )}
+    </div>
   );
 }
 

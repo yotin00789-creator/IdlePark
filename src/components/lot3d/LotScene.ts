@@ -127,6 +127,8 @@ export class LotScene {
   private outline: THREE.LineLoop;
   private walls: THREE.Object3D | null = null;
   private shed: THREE.Object3D | null = null;
+  private storageIds = new Set<string>(); // slots that are storage sheds (from the zones)
+  private extraSheds = new Map<string, { group: THREE.Group; height: number }>(); // a copy of the shed model on every other storage slot
   private numbers: THREE.Object3D | null = null;
   private sun = new THREE.DirectionalLight(0xfff4e5, 2.4);
   private hemi = new THREE.HemisphereLight(0xffffff, 0x8a8f96, 1.55);
@@ -267,6 +269,7 @@ export class LotScene {
       // the storage shed is rentable like a parking space: clicking it picks its slot
       const storage = this.slots.find((sl) => sl.kind === "storage");
       if (storage && this.shed) this.shed.traverse((o) => (o.userData.slotId = storage.id));
+      this.syncSheds();
       types.forEach((t, i) => (this.templates[t] = cars[i]));
       this.flushParked();
       this.dirty = true;
@@ -283,7 +286,7 @@ export class LotScene {
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.1, depthWrite: false });
     const m = new THREE.Mesh(geo, mat);
-    m.position.set(s.center_gltf.x, s.kind === "storage" ? (s.height_m ?? 2.5) + 0.05 : 0.03, s.center_gltf.z);
+    m.position.set(s.center_gltf.x, this.padY(s), s.center_gltf.z);
     m.rotation.y = s.rotation_y_rad_threejs;
     m.userData.slotId = s.id;
     m.renderOrder = 2;
@@ -293,6 +296,56 @@ export class LotScene {
   }
 
   private slotOf = (key: string) => key.split("#")[0];
+
+  /** Roof height of the storage shed on this slot (0 when the slot is a parking space). */
+  private shedHeight(s: SlotDef): number {
+    if (s.kind === "storage") return s.height_m ?? 2.5;
+    return this.extraSheds.get(s.id)?.height ?? 0;
+  }
+  private isShed = (id: string) => this.slotById[id]?.kind === "storage" || this.extraSheds.has(id);
+  private padY(s: SlotDef) {
+    const h = this.shedHeight(s);
+    return h > 0 ? h + 0.05 : 0.03;
+  }
+
+  /**
+   * Every slot of a storage zone shows the storage shed: the model that is built into the lot (the dark grey box) is
+   * copied onto the slot, turned along its length and kept inside its lines. Slots that stop being storage lose their copy.
+   */
+  private syncSheds() {
+    if (!this.shed) return;
+    for (const [id, e] of [...this.extraSheds]) {
+      if (this.storageIds.has(id) && this.slotById[id]) continue;
+      this.scene.remove(e.group);
+      this.extraSheds.delete(id);
+    }
+    for (const id of this.storageIds) {
+      const s = this.slotById[id];
+      if (!s || s.kind === "storage" || this.extraSheds.has(id)) continue;
+      const group = new THREE.Group();
+      const copy = this.shed.clone(true);
+      group.add(copy);
+      group.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(group);
+      const c = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      copy.position.set(copy.position.x - c.x, copy.position.y - box.min.y, copy.position.z - c.z);
+      // the long side runs along the slot; never bigger than the real shed, shrunk only when the slot is narrower
+      const k = Math.min(1, (s.size.length_m - 0.5) / Math.max(size.x, size.z), (s.size.width_m - 0.3) / Math.min(size.x, size.z));
+      group.scale.setScalar(k);
+      group.position.set(s.center_gltf.x, 0, s.center_gltf.z);
+      group.rotation.y = s.rotation_y_rad_threejs + (size.x >= size.z ? Math.PI / 2 : 0);
+      group.traverse((o) => (o.userData.slotId = id));
+      this.scene.add(group);
+      this.extraSheds.set(id, { group, height: size.y * k });
+    }
+    for (const s of this.slots) {
+      const pad = this.pads.get(s.id);
+      if (pad) pad.position.y = this.padY(s);
+    }
+    this.placeOutline();
+    this.dirty = true;
+  }
 
   private paintPad(id: string) {
     const pad = this.pads.get(id);
@@ -315,7 +368,7 @@ export class LotScene {
       return;
     }
     this.outline.visible = true;
-    this.outline.position.set(s.center_gltf.x, s.kind === "storage" ? (s.height_m ?? 2.5) + 0.07 : 0.05, s.center_gltf.z);
+    this.outline.position.set(s.center_gltf.x, this.padY(s) + 0.02, s.center_gltf.z);
     this.outline.rotation.y = s.rotation_y_rad_threejs;
     this.outline.scale.set((s.size.width_m - 0.12) / 2, 1, (s.size.length_m - 0.12) / 2);
   }
@@ -341,9 +394,11 @@ export class LotScene {
   }
 
   /** Zones decide how an empty slot looks: closed (grey) or private (violet). */
-  setZones(zones: { slotIds: string[]; access: "public" | "private"; isActive: boolean }[]) {
+  setZones(zones: { slotIds: string[]; access: "public" | "private"; isActive: boolean; kind?: "parking" | "storage" }[]) {
     this.zoneTone.clear();
+    this.storageIds = new Set(zones.filter((z) => z.kind === "storage").flatMap((z) => z.slotIds));
     for (const z of zones) for (const id of z.slotIds) this.zoneTone.set(id, !z.isActive ? "closed" : z.access === "private" ? "private" : "empty");
+    this.syncSheds();
     for (const s of this.slots) this.paintPad(s.id);
   }
 
@@ -600,12 +655,12 @@ export class LotScene {
     if (!s) return;
     const car = this.parked.get(key);
     this.autoFit = false;
-    if (s.kind === "storage") {
+    if (this.isShed(s.id)) {
       // look at the shed from the yard side (towards the middle of the lot)
       const c = new THREE.Vector3(s.center_gltf.x, 0, s.center_gltf.z);
       const toYard = this.center.clone().sub(c).setY(0).normalize();
       const right = new THREE.Vector3(-toYard.z, 0, toYard.x);
-      const tgt = c.clone().add(new THREE.Vector3(0, (s.height_m ?? 2.5) * 0.45, 0));
+      const tgt = c.clone().add(new THREE.Vector3(0, (this.shedHeight(s) || 2.5) * 0.45, 0));
       const pos = c.clone().addScaledVector(toYard, mode === "side" ? 6 : 9.5).addScaledVector(right, mode === "side" ? 8 : 3.5).add(new THREE.Vector3(0, mode === "side" ? 2.2 : 5.5, 0));
       this.wallsAuto = false;
       this.applyWalls();
@@ -690,6 +745,7 @@ export class LotScene {
     this.ray.setFromCamera(this.mouse, this.camera);
     const targets: THREE.Object3D[] = [...[...this.parked.values()].map((p) => p.group)];
     if (this.shed) targets.push(this.shed);
+    for (const e of this.extraSheds.values()) targets.push(e.group);
     if (this.padsVisible) targets.push(...this.pads.values());
     for (const hit of this.ray.intersectObjects(targets, true)) {
       const key = (hit.object.userData.carKey ?? hit.object.userData.slotId) as string | undefined;

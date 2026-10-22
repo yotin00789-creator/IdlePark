@@ -4,6 +4,7 @@
 import ExcelJS from "exceljs";
 import { bangkokClock, bangkokToday, formatBaht, formatThaiDateTime, parseClock, THAI_MONTHS, THAI_MONTHS_SHORT } from "../shared/thai.js";
 import { feeSteps } from "../shared/calc.js";
+import { loadStorage } from "./storage.js";
 import { slotLabel, vehicleLabel, isStorageSlot } from "../shared/lot.js";
 import { loadSavings, loadYears } from "./data.js";
 import type { Db } from "./db.js";
@@ -83,6 +84,7 @@ export async function backupRecipients(db: Db, s: BackupSettings) {
 }
 
 export async function buildBackup(db: Db) {
+  await loadStorage(db);
   const years = await loadYears(db, [bangkokToday().year]);
   const { workbook: wb } = await buildLedgerWorkbook(years);
   const head = (ws: ExcelJS.Worksheet) => {
