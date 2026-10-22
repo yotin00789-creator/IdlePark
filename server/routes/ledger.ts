@@ -185,6 +185,9 @@ async function ensureCustomer(q: Queryable, name: string): Promise<number> {
 /** monthly or yearly: what the form says, else yearly for the storage shed and monthly for everything else. */
 const billingOf = (b: any, slotId: string | null | undefined) => (b?.billing === "yearly" || b?.billing === "monthly" ? (b.billing as string) : isStorageSlot(slotId) ? "yearly" : "monthly");
 
+// a row is a car (or a bike) when it has a vehicle type or a real plate; otherwise it is someone renting a shed
+const CAR_ROW = "(vehicle_type is not null or (plate <> '' and plate <> 'คลังเก็บของ'))";
+
 /** A vehicle costs nothing when its customer is the owner, or when it stands in a Private zone (reserved, never rented). */
 async function noRent(q: Queryable, customerId: number | null, zoneId: number | null): Promise<boolean> {
   const [r] = await q.query<{ v: boolean }>(
@@ -655,13 +658,13 @@ async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof z
   const nowStorage: string[] = z.kind === "storage" ? z.slotIds : [];
   const becoming = nowStorage.filter((x) => !wasStorage.includes(x));
   if (becoming.length) {
-    const [v] = await q.query("select owner_name, plate, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active and vehicle_type is not null limit 1", [becoming, today]);
+    const [v] = await q.query(`select owner_name, plate, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active and ${CAR_ROW} limit 1`, [becoming, today]);
     if (v) throw new HttpError(409, `${slotLabel(v.slot_id)} มี ${v.owner_name}${v.plate ? ` (${v.plate})` : ""} จอดอยู่ เปลี่ยนเป็นคลังเก็บของไม่ได้ ย้ายรถไปช่องอื่นก่อน`);
   }
   const leaving = wasStorage.filter((x) => !nowStorage.includes(x));
   if (leaving.includes(STORAGE_SLOT)) throw new HttpError(409, "คลังเก็บของหลังเดิม (ในโมเดลบ้าน) เปลี่ยนเป็นที่จอดรถไม่ได้");
   if (leaving.length) {
-    const [v] = await q.query("select owner_name, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active limit 1", [leaving, today]);
+    const [v] = await q.query(`select owner_name, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active and not ${CAR_ROW} limit 1`, [leaving, today]);
     if (v) throw new HttpError(409, `${slotLabel(v.slot_id)} มี ${v.owner_name} เช่าคลังอยู่ เปลี่ยนเป็นที่จอดรถไม่ได้ ให้ผู้เช่าเลิกเช่าหรือย้ายก่อน`);
   }
   if (z.kind === "parking" && z.slotIds.includes(STORAGE_SLOT)) throw new HttpError(409, "คลังเก็บของหลังเดิม (ในโมเดลบ้าน) ต้องอยู่ในโซนคลังเก็บของ");
@@ -690,11 +693,11 @@ async function checkZone(q: Queryable, id: number | null, z: ReturnType<typeof z
     }
     if (o.kind === "storage" && z.kind !== "storage") {
       if (slots.includes(STORAGE_SLOT)) throw new HttpError(409, "คลังเก็บของหลังเดิม (ในโมเดลบ้าน) เปลี่ยนเป็นที่จอดรถไม่ได้");
-      const [v] = await q.query("select owner_name, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active limit 1", [slots, today]);
+      const [v] = await q.query(`select owner_name, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active and not ${CAR_ROW} limit 1`, [slots, today]);
       if (v) throw new HttpError(409, `${slotLabel(v.slot_id)} มี ${v.owner_name} เช่าคลังอยู่ เปลี่ยนเป็นที่จอดรถไม่ได้`);
     }
     if (o.kind !== "storage" && z.kind === "storage") {
-      const [v] = await q.query("select owner_name, plate, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active and vehicle_type is not null limit 1", [slots, today]);
+      const [v] = await q.query(`select owner_name, plate, slot_id from ledger_rows where slot_id = any($1::text[]) and year >= $2 and is_active and ${CAR_ROW} limit 1`, [slots, today]);
       if (v) throw new HttpError(409, `${slotLabel(v.slot_id)} มี ${v.owner_name}${v.plate ? ` (${v.plate})` : ""} จอดอยู่ เปลี่ยนเป็นคลังเก็บของไม่ได้`);
     }
     takes.push({ id: o.id, name: o.name, slots, rest, motoCapacity: o.moto_capacity });
@@ -805,7 +808,7 @@ route("PUT", "/slots/:id/kind", EDIT as any, async (c) => {
     if (kind === "storage" && holder && holder.moto_capacity > 0) throw new HttpError(409, `${slotLabel(slot)} อยู่ในโซนมอเตอร์ไซค์ “${holder.name}” เปลี่ยนเป็นคลังเก็บของไม่ได้`);
     if (kind === "storage") {
       if (isShed) return { changed: false, zone: holder?.name ?? "คลังเก็บของ" };
-      const [v] = await q.query("select owner_name, plate from ledger_rows where slot_id = $1 and year >= $2 and is_active and vehicle_type is not null limit 1", [slot, today]);
+      const [v] = await q.query(`select owner_name, plate from ledger_rows where slot_id = $1 and year >= $2 and is_active and ${CAR_ROW} limit 1`, [slot, today]);
       if (v) throw new HttpError(409, `${slotLabel(slot)} มี ${v.owner_name}${v.plate ? ` (${v.plate})` : ""} จอดอยู่ ย้ายรถไปช่องอื่นก่อนจึงเปลี่ยนเป็นคลังเก็บของได้`);
       let target: Record<string, any> = zones.find((z) => z.kind === "storage" && z.is_active) as Record<string, any>;
       if (!target) {
@@ -823,7 +826,7 @@ route("PUT", "/slots/:id/kind", EDIT as any, async (c) => {
     }
     if (slot === STORAGE_SLOT) throw new HttpError(409, "คลังเก็บของหลังเดิม (ในโมเดลบ้าน) เปลี่ยนเป็นที่จอดรถไม่ได้");
     if (!isShed) return { changed: false, zone: holder?.name ?? null };
-    const [v] = await q.query("select owner_name from ledger_rows where slot_id = $1 and year >= $2 and is_active limit 1", [slot, today]);
+    const [v] = await q.query(`select owner_name from ledger_rows where slot_id = $1 and year >= $2 and is_active and not ${CAR_ROW} limit 1`, [slot, today]);
     if (v) throw new HttpError(409, `${v.owner_name} เช่าคลังนี้อยู่ ให้เลิกเช่าหรือย้ายก่อนจึงเปลี่ยนเป็นที่จอดรถได้`);
     await q.query("update zones set slot_ids = $2::jsonb where id = $1", [holder!.id, JSON.stringify((holder!.slot_ids as string[]).filter((x) => x !== slot))]);
     await q.query("update ledger_rows set zone_id = null where slot_id = $1 and year >= $2", [slot, today]);

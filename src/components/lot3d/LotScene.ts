@@ -127,6 +127,7 @@ export class LotScene {
   private outline: THREE.LineLoop;
   private walls: THREE.Object3D | null = null;
   private shed: THREE.Object3D | null = null;
+  private shedRoof: number | null = null; // measured roof height of the built-in shed (the status plane sits just above it)
   private storageIds = new Set<string>(); // slots that are storage sheds (from the zones)
   private extraSheds = new Map<string, { group: THREE.Group; height: number }>(); // a copy of the shed model on every other storage slot
   private numbers: THREE.Object3D | null = null;
@@ -266,6 +267,10 @@ export class LotScene {
         if (o.name === "LOT_SlotNumbers") this.numbers = o;
       });
       this.scene.add(lot);
+      if (this.shed) {
+        lot.updateMatrixWorld(true);
+        this.shedRoof = new THREE.Box3().setFromObject(this.shed).max.y;
+      }
       // the storage shed is rentable like a parking space: clicking it picks its slot
       const storage = this.slots.find((sl) => sl.kind === "storage");
       if (storage && this.shed) this.shed.traverse((o) => (o.userData.slotId = storage.id));
@@ -299,13 +304,14 @@ export class LotScene {
 
   /** Roof height of the storage shed on this slot (0 when the slot is a parking space). */
   private shedHeight(s: SlotDef): number {
-    if (s.kind === "storage") return s.height_m ?? 2.5;
+    if (s.kind === "storage") return this.shedRoof ?? s.height_m ?? 2.5;
     return this.extraSheds.get(s.id)?.height ?? 0;
   }
   private isShed = (id: string) => this.slotById[id]?.kind === "storage" || this.extraSheds.has(id);
+  // the built-in shed fills its slot, so its status plane lies on the roof; a copied shed is smaller than its slot,
+  // so the status colour stays on the ground around it like any parking space
   private padY(s: SlotDef) {
-    const h = this.shedHeight(s);
-    return h > 0 ? h + 0.05 : 0.03;
+    return s.kind === "storage" ? this.shedHeight(s) + 0.06 : 0.03;
   }
 
   /**
