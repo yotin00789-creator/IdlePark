@@ -1,4 +1,5 @@
 import { audit } from "../audit.js";
+import { ensureCurrentYear } from "../years.js";
 import { HttpError, route } from "../http.js";
 import { planReminders, runReminders, isoDate } from "../reminders.js";
 import { getSettings } from "../settings.js";
@@ -97,6 +98,7 @@ async function cronTick(c: import("../http.js").Ctx) {
     throw new HttpError(401, "ไม่ได้รับอนุญาต");
   }
   const system = { id: null, email: "system", name: "ระบบอัตโนมัติ", role: "system" };
+  await ensureCurrentYear(c, c.db); // the new year exists before the first reminder of it is sent
   const r = await runReminders(c.db);
   if (!r.skipped || r.groupsSent) {
     await audit(c, {

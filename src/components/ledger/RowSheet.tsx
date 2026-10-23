@@ -5,6 +5,7 @@ import Sheet from "@/components/app/Sheet";
 import { api, errorMessage } from "@/lib/api";
 import { dataStore, useData } from "@/lib/dataStore";
 import { parseBaht, THAI_MONTHS, THAI_MONTHS_SHORT, formatBaht } from "@/lib/format";
+import { setRenting } from "@/lib/ledgerActions";
 import { toast } from "@/lib/toast";
 import { useState } from "react";
 import { cn } from "@/utils";
@@ -126,6 +127,14 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
     } finally {
       setBusy(false);
     }
+  };
+
+  const endOrResume = async () => {
+    if (!row || !data) return;
+    setBusy(true);
+    const ok = await setRenting(row, !row.isActive, data.today);
+    setBusy(false);
+    if (ok) onClose();
   };
 
   const unplace = async () => {
@@ -281,7 +290,17 @@ function RowForm({ year, row, open, onClose, canDelete, presetName, presetSlot, 
           <TextField label="ปี (พ.ศ.)" inputMode="numeric" value={ptYear} onChange={(e) => setPtYear(e.target.value)} disabled={!ptMonth} placeholder={String(year)} />
         </div>}
         <TextAreaField label="หมายเหตุ" value={note} onChange={(e) => setNote(e.target.value)} />
-        <Toggle checked={active} onChange={setActive} label="ใช้งานอยู่" hint="ปิดเมื่อเลิกเช่าแล้ว จะไม่ถูกแจ้งเตือนค้างชำระ" />
+        {row ? (
+          <div className={cn("flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3.5 py-3", row.isActive ? "border-gray-200 dark:border-gray-700" : "border-warning-300 bg-warning-50 dark:border-warning-500/40 dark:bg-warning-500/10")}>
+            <div className="min-w-0 flex-1 basis-52">
+              <p className="text-theme-sm font-medium text-gray-800 dark:text-white/90">{row.isActive ? "ยังเช่าอยู่" : "เลิกเช่าแล้ว"}</p>
+              <p className="text-theme-xs text-gray-600 dark:text-gray-400">{row.isActive ? "เลิกเช่าแล้วข้อมูลและยอดที่จ่ายยังอยู่ครบ ย้ายไปส่วน “เลิกเช่าแล้ว” ปล่อยช่องให้คนอื่น และกลับมาเช่าได้ทุกเมื่อ" : "ไม่นับในรายการเก็บเงินและไม่แจ้งค้าง กด “กลับมาเช่า” เมื่อกลับมาเช่าอีก"}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" loading={busy} onClick={endOrResume}>{row.isActive ? "เลิกเช่า" : "กลับมาเช่า"}</Button>
+          </div>
+        ) : (
+          <Toggle checked={active} onChange={setActive} label="ใช้งานอยู่" hint="ปิดเมื่อเลิกเช่าแล้ว จะไม่ถูกแจ้งเตือนค้างชำระ" />
+        )}
         <Toggle checked={review} onChange={setReview} label="ทำเครื่องหมายให้ตรวจสอบ" hint="ใช้กับแถวที่ข้อมูลไม่ครบ เช่น ไม่ทราบชื่อ" />
         {error && <p role="alert" className="text-theme-sm text-error-600 dark:text-error-500">{error}</p>}
       </div>

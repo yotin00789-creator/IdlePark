@@ -9,7 +9,7 @@ import { SearchGlyph } from "@/icons";
 import { api, errorMessage } from "@/lib/api";
 import { dataStore } from "@/lib/dataStore";
 import { toast } from "@/lib/toast";
-import ThaiDateField from "@/components/app/ThaiDateField";
+import ThaiDateRangePicker from "@/components/app/ThaiDateRangePicker";
 import { formatDateTime } from "@/lib/format";
 import { ROLE_LABEL } from "@/lib/session";
 import { cn } from "@/utils";
@@ -46,6 +46,7 @@ const ACTION_LABEL: Record<string, string> = {
   "mail.test": "ส่งอีเมลทดสอบ", "mfa.enable": "เปิด MFA", "mfa.disable": "ปิด MFA", "mfa.recovery_regenerate": "สร้างรหัสกู้คืนใหม่",
   "profile.update": "แก้ไขโปรไฟล์", "profile.avatar_set": "เปลี่ยนรูปโปรไฟล์", "profile.avatar_remove": "ลบรูปโปรไฟล์", "profile.password_change": "เปลี่ยนรหัสผ่าน",
   "reminder.run": "สั่งแจ้งเตือนค้างชำระ", "reminder.cron": "แจ้งเตือนอัตโนมัติ",
+  "slot.kind": "ตั้งชนิดช่อง", "row.unplace": "เอารถออกจากผัง", "year.auto": "สร้างปีใหม่อัตโนมัติ", "data.revert": "ย้อนข้อมูล", "backup.auto": "สำรองข้อมูลอัตโนมัติ",
 };
 const GROUPS: [string, string][] = [["", "ทุกหมวด"], ["auth", "เข้าสู่ระบบ"], ["payment", "ยอดรายรับ"], ["item", "ยอดสรุปเดือน"], ["row", "ผู้เช่า/แถว"], ["customer", "ลูกค้า"], ["zone", "โซน"], ["user", "ผู้ใช้"], ["mfa", "MFA"], ["profile", "โปรไฟล์"], ["account", "บัญชีรับเงิน"], ["settings", "ตั้งค่า"], ["formula", "สูตร"], ["savings", "เงินเก็บพ่อ"], ["reminder", "แจ้งเตือน"], ["mail", "อีเมล"]];
 
@@ -116,11 +117,7 @@ export default function AuditLog() {
         <select aria-label="หมวดการกระทำ" className={input} value={f.action} onChange={(e) => setF({ ...f, action: e.target.value })}>{GROUPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
         <select aria-label="ผู้ทำรายการ" className={input} value={f.user} onChange={(e) => setF({ ...f, user: e.target.value })}><option value="">ทุกคน</option>{users.map((u) => <option key={u} value={u}>{u}</option>)}</select>
         <select aria-label="ผลลัพธ์" className={input} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="">ทุกผลลัพธ์</option><option value="ok">สำเร็จ</option><option value="failed">ไม่สำเร็จ</option></select>
-      </div>
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <ThaiDateField label="ตั้งแต่วันที่" value={f.from} onChange={(v) => setF({ ...f, from: v })} className="w-full max-w-sm" />
-        <ThaiDateField label="ถึงวันที่" value={f.to} onChange={(v) => setF({ ...f, to: v })} className="w-full max-w-sm" />
-        {(f.from || f.to) && <button onClick={() => setF({ ...f, from: "", to: "" })} className="mb-2 text-theme-sm text-link">ล้างวันที่</button>}
+        <ThaiDateRangePicker label="ช่วงวันที่" value={{ from: f.from, to: f.to }} onChange={(r) => setF({ ...f, from: r.from, to: r.to })} className="w-full sm:w-[17.5rem]" />
       </div>
       <Card bodyClassName="p-0">
         {error ? <EmptyState title={error} /> : loading && !entries.length ? <EmptyState title="กำลังโหลด…" /> : entries.length === 0 ? <EmptyState title="ไม่พบรายการ" body="ลองเปลี่ยนตัวกรอง" /> : (

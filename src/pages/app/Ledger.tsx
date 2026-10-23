@@ -6,6 +6,7 @@ import PageHeader from "@/components/app/PageHeader";
 import PageMeta from "@/components/common/PageMeta";
 import LedgerCards from "@/components/ledger/LedgerCards";
 import LedgerTable from "@/components/ledger/LedgerTable";
+import EndedTenants from "@/components/ledger/EndedTenants";
 import MonthSummaryCard from "@/components/ledger/MonthSummaryCard";
 import RowSheet from "@/components/ledger/RowSheet";
 import { CELL_TONE, STATUS_LABEL } from "@/components/ledger/status";
@@ -66,7 +67,7 @@ export default function Ledger() {
     return yd.rows.filter((r) => {
       if (term && !`${r.ownerName}${r.plate}`.toLowerCase().replace(/\s+/g, "").includes(term)) return false;
       if (incompleteOnly) {
-        if (r.kind === "excluded") return false;
+        if (r.kind === "excluded" || !r.isActive) return false;
         for (let m = Math.max(1, r.startMonth); m <= Math.min(lastMonth, r.endMonth ?? 12); m++) {
           if (isPrepaid(r, year, m)) continue;
           if ((r.payments[m - 1] ?? 0) < feeFor(r, m)) return true;
@@ -105,52 +106,28 @@ export default function Ledger() {
 
   // same name side by side, in alphabetical order (Thai collation), then by plate; rows that are not counted stay at the end
   const byName = (a: LedgerRow, b: LedgerRow) => a.ownerName.localeCompare(b.ownerName, "th") || a.plate.localeCompare(b.plate, "th") || a.id - b.id;
-  const ordered = [...rows.filter((r) => r.kind !== "excluded").sort(byName), ...rows.filter((r) => r.kind === "excluded").sort(byName)];
+  const live = rows.filter((r) => r.isActive); // tenants who left are listed apart, under the ledger
+  const ended = rows.filter((r) => !r.isActive).sort(byName);
+  const ordered = [...live.filter((r) => r.kind !== "excluded").sort(byName), ...live.filter((r) => r.kind === "excluded").sort(byName)];
   const sheds = getStorageSlots().map((id) => ({ id, row: (yd?.rows ?? []).find((r) => r.slotId === id && r.isActive && r.kind !== "excluded") }));
   const defaultMonth = year === today.year ? today.month : year < today.year ? 12 : 1;
 
   return (
     <>
       <PageMeta title={`สมุดรายรับ ปี ${year} | IdlePark`} description="บันทึกยอดที่เก็บได้รายคันรายเดือน" />
-      <PageHeader
-        title="สมุดรายรับรายเดือน"
-        description="แตะที่ช่องเพื่อแก้ไข ยอดรวมและยอดสะสมของทุกปีจะอัปเดตทันที"
-        actions={
-          <>
-            <a
-              href={`/api/export/ledger?year=${year}`}
-              download
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 md:h-10 md:text-theme-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-white/5 [&_svg]:size-4"
-              title="ดาวน์โหลด .xlsx ที่มีสูตร SUM และสูตรหักแล้วจริง"
-            >
-              <DownloadGlyph /> ส่งออก Excel
-            </a>
-            {editable && <Button icon={<PlusGlyph />} onClick={() => setSheet({ row: null })}>เพิ่มผู้เช่า</Button>}
-          </>
-        }
-      />
+      <PageHeader title="สมุดรายรับรายเดือน" description="แตะที่ช่องเพื่อแก้ไข ยอดรวมและยอดสะสมของทุกปีจะอัปเดตทันที" />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <nav aria-label="เลือกปี" className="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-gray-100 p-1 dark:bg-white/5">
-          {years.map((y) => (
-            <Link
-              key={y}
-              to={`/ledger/${y}${q ? `?q=${encodeURIComponent(q)}` : ""}`}
-              aria-current={y === year ? "page" : undefined}
-              className={cn(
-                "num shrink-0 rounded-md px-3 py-1.5 text-theme-sm font-medium whitespace-nowrap",
-                y === year ? "bg-white text-gray-900 shadow-theme-xs dark:bg-gray-800 dark:text-white" : "text-gray-500 hover:text-gray-800 dark:text-gray-400",
-              )}
-            >
-              {y}
-            </Link>
-          ))}
-          {editable && (
-            <button onClick={addYear} disabled={busy} className="shrink-0 rounded-md px-3 py-1.5 text-theme-sm whitespace-nowrap text-gray-500 hover:text-link-hover" title={`สร้างปี ${maxYear + 1} โดยคัดลอกผู้เช่าจากปี ${maxYear}`}>
-              + ปี {maxYear + 1}
-            </button>
-          )}
-        </nav>
+        <select
+          aria-label="เลือกปี"
+          value={year}
+          disabled={busy}
+          onChange={(e) => (e.target.value === "new" ? void addYear() : navigate(`/ledger/${e.target.value}${q ? `?q=${encodeURIComponent(q)}` : ""}`))}
+          className="app-input num h-11 w-auto min-w-28 pe-8 font-medium md:h-10"
+        >
+          {[...years].sort((x, y) => y - x).map((y) => <option key={y} value={y}>ปี {y}{y === today.year ? " (ปัจจุบัน)" : ""}</option>)}
+          {editable && <option value="new">+ สร้างปี {maxYear + 1}</option>}
+        </select>
         <div className="relative min-w-40 flex-1 md:max-w-72">
           <SearchGlyph className="pointer-events-none absolute inset-s-3 top-1/2 size-4 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
           <input
@@ -169,6 +146,17 @@ export default function Ledger() {
         >
           ยังไม่ครบ
         </button>
+        <div className="ms-auto flex items-center gap-2">
+          <a
+            href={`/api/export/ledger?year=${year}`}
+            download
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-base font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 md:h-10 md:text-theme-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-white/5 [&_svg]:size-4"
+            title="ดาวน์โหลด .xlsx ที่มีสูตร SUM และสูตรหักแล้วจริง"
+          >
+            <DownloadGlyph /> ส่งออก Excel
+          </a>
+          {editable && <Button icon={<PlusGlyph />} onClick={() => setSheet({ row: null })}>เพิ่มผู้เช่า</Button>}
+        </div>
       </div>
 
       <div className="app-card mb-3 space-y-1.5 px-4 py-3 text-theme-sm" aria-label="คลังเก็บของ">
@@ -228,6 +216,8 @@ export default function Ledger() {
         <LedgerCards year={year} today={today} rows={ordered} editable={editable} onEditRow={(row) => setSheet({ row })} />
         <MonthSummaryCard year={yd} calc={calc} initialMonth={defaultMonth} editable={editable} />
       </div>
+
+      <EndedTenants rows={ended} today={today} editable={editable} onEdit={(row) => setSheet({ row })} />
 
       <RowSheet year={year} row={sheet?.row ?? null} open={Boolean(sheet)} onClose={() => setSheet(null)} canDelete={editable} />
     </>

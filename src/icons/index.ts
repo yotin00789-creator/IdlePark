@@ -32,6 +32,7 @@ import { ReactComponent as DashboardGlyph } from "./ui-dashboard.svg?react";
 import { ReactComponent as ChartGlyph } from "./ui-chart.svg?react";
 import { ReactComponent as CarSideGlyph } from "./ui-car-side.svg?react";
 import { ReactComponent as ClockGlyph } from "./ui-clock.svg?react";
+import { ReactComponent as CalendarGlyph } from "./ui-calendar.svg?react";
 import { ReactComponent as UserGlyph } from "./ui-user.svg?react";
 import { ReactComponent as SendGlyph } from "./ui-send.svg?react";
 import { ReactComponent as CubeGlyph } from "./ui-cube.svg?react";
@@ -73,6 +74,7 @@ export {
   ChartGlyph,
   CarSideGlyph,
   ClockGlyph,
+  CalendarGlyph,
   UserGlyph,
   SendGlyph,
   CubeGlyph,

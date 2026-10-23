@@ -8,6 +8,7 @@ import type { Queryable } from "../db.js";
 import { HttpError, intOrNull, route, str } from "../http.js";
 import { resolvePlacement } from "../placement.js";
 import { loadStorage } from "../storage.js";
+import { copyYear, ensureCurrentYear } from "../years.js";
 import { STORAGE_SLOT, setStorageSlots, baysIn, isHexColor, isMotorcycle, isSlotId, isStorageSlot, isVehicleType, slotLabel } from "../../shared/lot.js";
 
 const EDIT = ["admin", "editor"] as const;
@@ -43,6 +44,7 @@ const maskAccount = (n: string) => (n.length <= 4 ? n : `${"•".repeat(Math.max
 
 route("GET", "/data", "user", async (c) => {
   const today = bangkokToday();
+  await ensureCurrentYear(c, c.db, today.year); // after 31 December the new year is already there
   const [years, sv, customers, zones, accounts, settings, lastRun] = await Promise.all([
     loadYears(c.db, [today.year]),
     loadSavings(c.db),
@@ -485,23 +487,9 @@ route("POST", "/ledger/years/:year/copy-previous", EDIT as any, async (c) => {
   const y = year(Number(c.params.year));
   const [{ n }] = await c.db.query<{ n: number }>("select count(*)::int as n from ledger_rows where year = $1", [y]);
   if (n > 0) throw new HttpError(409, `ปี ${y} มีข้อมูลอยู่แล้ว`);
-  const prev = await c.db.query(
-    "select * from ledger_rows where year = $1 and (is_active or kind = 'excluded') order by sort_order, id",
-    [y - 1],
-  );
-  if (!prev.length) throw new HttpError(404, `ไม่พบข้อมูลปี ${y - 1} ให้คัดลอก`);
-  await c.db.tx(async (q) => {
-    let i = 0;
-    for (const r of prev) {
-      await q.query(
-        `insert into ledger_rows (year, sort_order, customer_id, owner_name, plate, zone_id, kind, bulk_count, monthly_fee, note, slot_id, vehicle_type, car_color, plate_province, due_day, bay, start_month, billing, is_owner)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'',$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-        [y, i++, r.customer_id, r.owner_name, r.plate, r.zone_id, r.kind, r.bulk_count, feeFor({ monthlyFee: r.monthly_fee, feeChanges: r.fee_changes ?? [] }, 12), r.slot_id, r.vehicle_type, r.car_color, r.plate_province, r.due_day, r.bay, r.billing === "yearly" ? r.start_month : 1, r.billing, r.is_owner], // a yearly row keeps its payment month
-      );
-    }
-    await audit(c, { action: "year.copy", entity: "year", entityId: y, summary: `คัดลอกผู้เช่า ${prev.length} แถวจากปี ${y - 1} ไปปี ${y}` }, q);
-  });
-  return { ok: true, copied: prev.length };
+  const copied = await copyYear(c, c.db, y);
+  if (!copied) throw new HttpError(404, `ไม่พบข้อมูลปี ${y - 1} ให้คัดลอก`);
+  return { ok: true, copied };
 });
 
 // -------------------------------------------------------------- customers
